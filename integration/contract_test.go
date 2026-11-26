@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
+	"go/constant"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -321,8 +322,7 @@ func TestParseEndpointKey(t *testing.T) {
 // lowLevelBridge names the functions of the root package that reach any route without a typed method.
 var lowLevelBridge = []string{"Call", "Stream", "CallRaw"}
 
-// TestContractFilesUseTypedMethods parses the contract files and fails for every reference to the low-level
-// bridge, which would satisfy a contract without a typed method.
+// TestContractFilesUseTypedMethods rejects low-level bridge references and unresolved calls reachable from a contract.
 func TestContractFilesUseTypedMethods(t *testing.T) {
 	files, err := contractFiles(".")
 	if err != nil {
@@ -364,6 +364,74 @@ func integrationImporter(t *testing.T, fset *token.FileSet) types.Importer {
 	return importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) { return os.Open(paths[path]) })
 }
 
+// contractCallee returns the declared object of a direct call, including generic instantiations.
+func contractCallee(info *types.Info, expr ast.Expr) types.Object {
+	switch e := ast.Unparen(expr).(type) {
+	case *ast.Ident:
+		return info.Uses[e]
+	case *ast.SelectorExpr:
+		return info.Uses[e.Sel]
+	case *ast.IndexExpr:
+		if info.Types[e.Index].IsType() {
+			return contractCallee(info, e.X)
+		}
+	case *ast.IndexListExpr:
+		return contractCallee(info, e.X)
+	}
+	return nil
+}
+
+// localContractFunctions identifies local function literals and standard context cancellation functions whose
+// bindings are only ever called, never reassigned or taken by address.
+func localContractFunctions(info *types.Info, pkg *types.Package, syntax []*ast.File) map[types.Object]bool {
+	known := map[types.Object]bool{}
+	called := map[*ast.Ident]bool{}
+	bind := func(id *ast.Ident, rhs ast.Expr) {
+		obj := info.Defs[id]
+		if _, ok := ast.Unparen(rhs).(*ast.FuncLit); ok && obj != nil && obj.Parent() != pkg.Scope() {
+			known[obj] = true
+		}
+	}
+	for _, file := range syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				if id, ok := ast.Unparen(n.Fun).(*ast.Ident); ok {
+					called[id] = true
+				}
+			case *ast.AssignStmt:
+				if n.Tok != token.DEFINE {
+					break
+				}
+				if len(n.Lhs) == len(n.Rhs) {
+					for i, lhs := range n.Lhs {
+						bind(lhs.(*ast.Ident), n.Rhs[i])
+					}
+				} else if call, ok := n.Rhs[0].(*ast.CallExpr); ok && len(n.Lhs) == 2 {
+					if fn, ok := contractCallee(info, call.Fun).(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "context" && fn.Name() == "WithTimeout" {
+						if obj := info.Defs[n.Lhs[1].(*ast.Ident)]; obj != nil {
+							known[obj] = true
+						}
+					}
+				}
+			case *ast.ValueSpec:
+				if len(n.Names) == len(n.Values) {
+					for i, id := range n.Names {
+						bind(id, n.Values[i])
+					}
+				}
+			}
+			return true
+		})
+	}
+	for id, obj := range info.Uses {
+		if !called[id] {
+			delete(known, obj)
+		}
+	}
+	return known
+}
+
 func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File, roots []string, imp types.Importer) []string {
 	t.Helper()
 	info := &types.Info{Defs: map[*ast.Ident]types.Object{}, Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
@@ -372,6 +440,7 @@ func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File,
 	if err != nil {
 		t.Fatal(err)
 	}
+	known := localContractFunctions(info, pkg, syntax)
 	caseType := pkg.Scope().Lookup("contractCase").Type()
 	fields := caseType.Underlying().(*types.Struct)
 	register := pkg.Scope().Lookup("registerContracts")
@@ -381,7 +450,9 @@ func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File,
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
-				bodies[info.Defs[d.Name]] = d.Body
+				if d.Body != nil {
+					bodies[info.Defs[d.Name]] = d.Body
+				}
 			case *ast.GenDecl:
 				for _, spec := range d.Specs {
 					if v, ok := spec.(*ast.ValueSpec); ok && len(v.Names) == len(v.Values) {
@@ -391,6 +462,19 @@ func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File,
 					}
 				}
 			}
+		}
+	}
+	resolved := func(fun ast.Expr) bool {
+		switch obj := contractCallee(info, fun).(type) {
+		case *types.Func:
+			return obj.Pkg() != pkg || bodies[obj.Origin()] != nil
+		case *types.Builtin:
+			return true
+		case *types.Var:
+			return known[obj]
+		default:
+			_, literal := ast.Unparen(fun).(*ast.FuncLit)
+			return literal
 		}
 	}
 	for _, file := range syntax {
@@ -407,14 +491,30 @@ func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File,
 		var walk func(ast.Node, string)
 		walk = func(body ast.Node, chain string) {
 			ast.Inspect(body, func(n ast.Node) bool {
+				if kv, ok := n.(*ast.KeyValueExpr); ok && types.Identical(info.TypeOf(kv.Value), caseType) {
+					key := types.ExprString(kv.Key)
+					if v := info.Types[kv.Key].Value; v != nil && v.Kind() == constant.String {
+						key = constant.StringVal(v)
+					}
+					walk(kv.Value, chain+": "+key)
+					return false
+				}
+				if call, ok := n.(*ast.CallExpr); ok && !info.Types[call.Fun].IsType() && !resolved(call.Fun) {
+					problems = append(problems, chain+" -> unresolved call "+types.ExprString(call))
+				}
 				if lit, ok := n.(*ast.CompositeLit); ok && types.Identical(info.TypeOf(lit), caseType) {
 					// Server presets and options are not callbacks; exclude their initializers.
 					for i, elem := range lit.Elts {
+						field := ""
 						if kv, ok := elem.(*ast.KeyValueExpr); ok {
-							if kv.Key.(*ast.Ident).Name == "call" {
-								walk(kv.Value, chain)
+							field, elem = kv.Key.(*ast.Ident).Name, kv.Value
+						} else {
+							field = fields.Field(i).Name()
+						}
+						if field == "call" {
+							if !resolved(elem) {
+								problems = append(problems, chain+" -> unresolved callback "+types.ExprString(elem))
 							}
-						} else if fields.Field(i).Name() == "call" {
 							walk(elem, chain)
 						}
 					}
@@ -439,6 +539,7 @@ func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File,
 						label = "(" + types.TypeString(fn.Signature().Recv().Type(), func(*types.Package) string { return "" }) + ")." + label
 					}
 					walk(child, chain+" -> "+label)
+					delete(seen, obj)
 				}
 				return true
 			})
@@ -457,7 +558,7 @@ func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File,
 		})
 	}
 	slices.Sort(problems)
-	return problems
+	return slices.Compact(problems)
 }
 
 func TestContractBridgeChains(t *testing.T) {
@@ -466,10 +567,18 @@ func TestContractBridgeChains(t *testing.T) {
 import l "github.com/zchee/go-llama.cpp"
 type runner struct{}
 type clean struct{}
-func (runner) invoke() { _ = l.CallRaw }
+func (runner) invoke() { _, _ = l.CallRaw(nil, nil, "GET", "/health", nil) }
 func (clean) invoke() {}
 func indirect() { runner{}.invoke() }
 func unused() { _ = l.Stream[int] }
+type invokes interface { invoke() }
+var dynamic invokes = runner{}
+var later func()
+var holder struct{ run func() }
+func init() {
+	later = func() { _, _ = l.CallRaw(nil, nil, "GET", "/health", nil) }
+	holder.run = later
+}
 `
 	fset := token.NewFileSet()
 	imp := integrationImporter(t, fset)
@@ -477,13 +586,19 @@ func unused() { _ = l.Stream[int] }
 		callback string
 		want     []string
 	}{
-		"error: call through a function and a method":      {"indirect", []string{root + " -> indirect -> (runner).invoke -> llama.CallRaw"}},
+		"error: call through a function and a method":      {"indirect", []string{root + ": GET /sample -> indirect -> (runner).invoke -> llama.CallRaw"}},
 		"success: unrelated helpers and same-named method": {"func() { clean{}.invoke() }", nil},
+		"success: local closure":                           {"func() { fn := func() { clean{}.invoke() }; fn() }", nil},
+		"error: interface dispatch":                        {"func() { dynamic.invoke() }", []string{root + ": GET /sample -> unresolved call dynamic.invoke()"}},
+		"error: function variable assigned in init":        {"func() { later() }", []string{root + ": GET /sample -> unresolved call later()"}},
+		"error: function variable as callback":             {"later", []string{root + ": GET /sample -> unresolved callback later"}},
+		"error: reassigned local closure":                  {"func() { fn := func() {}; fn = later; fn() }", []string{root + ": GET /sample -> unresolved call fn()"}},
+		"error: function field assigned in init":           {"func() { holder.run() }", []string{root + ": GET /sample -> unresolved call holder.run()"}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			var syntax []*ast.File
-			for path, src := range map[string]string{root: "package integration\ntype contractCase struct{call func()}\nfunc registerContracts(c contractCase) bool {return true}\nvar _ = registerContracts(contractCase{call:" + tt.callback + "})", "helpers.go": helpers} {
+			for path, src := range map[string]string{root: "package integration\ntype contractCase struct{call func()}\nfunc registerContracts(c map[string]contractCase) bool {return true}\nvar _ = registerContracts(map[string]contractCase{\"GET /sample\": {call:" + tt.callback + "}})", "helpers.go": helpers} {
 				f, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
 				if err != nil {
 					t.Fatal(err)

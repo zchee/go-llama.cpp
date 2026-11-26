@@ -76,6 +76,21 @@ func (p *serverPreset) server(t testing.TB) *harness.Server {
 	return s
 }
 
+// started returns the server already selected by the contract runner without invoking the options callback again.
+func (p *serverPreset) started(t testing.TB) *harness.Server {
+	t.Helper()
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	s, ok := sharedServers[p.name]
+	if !ok {
+		t.Fatalf("shared server %q has not been started", p.name)
+	}
+	if s.Exited() {
+		t.Fatalf("shared server %q has exited; log tail:\n%s", p.name, s.LogTail(4096))
+	}
+	return s
+}
+
 // stopSharedServers stops every shared server and removes any directories registered for shared presets.
 func stopSharedServers() error {
 	sharedMu.Lock()

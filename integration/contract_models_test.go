@@ -80,11 +80,11 @@ var _ = registerContracts(map[string]contractCase{
 		return errors.New("no replayed event")
 	}},
 	"POST /models": {server: modelsDownloadPreset, call: func(t *testing.T, c *llama.Client) error {
-		modelsDownloadAndCheck(t, c, modelsDownloadPreset.server(t))
+		modelsDownloadAndCheck(t, c, modelsDownloadPreset.started(t))
 		return nil
 	}},
 	"DELETE /models": {server: modelsDeletePreset, query: url.Values{"model": {modelsHubID}}, call: func(t *testing.T, c *llama.Client) error {
-		file := modelsDownloadAndCheck(t, c, modelsDeletePreset.server(t))
+		file := modelsDownloadAndCheck(t, c, modelsDeletePreset.started(t))
 		sidecar, err := c.DeleteModel(t.Context(), modelsHubID, llama.WithSidecar("mmproj"))
 		if err != nil {
 			return err
