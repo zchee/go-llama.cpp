@@ -1,0 +1,1 @@
+{"error":{"code":400,"message":"The format to return the embeddings in. Can be either float or base64","type":"invalid_request_error"}}

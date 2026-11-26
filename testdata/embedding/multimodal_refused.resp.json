@@ -1,0 +1,1 @@
+{"error":{"code":500,"message":"Multimodal data provided, but model does not support multimodal requests.","type":"server_error"}}
