@@ -62,8 +62,10 @@ const (
 
 // Nullable distinguishes a missing member (zero value), explicit JSON null and a value.
 type Nullable[T any] struct {
+	// Value holds a non-null member; leave it nil for null or an omitted member.
 	Value *T
-	Null  bool
+	// Null records an explicit JSON null, distinct from omission when Value is nil.
+	Null bool
 }
 
 // MarshalJSONTo writes the value or JSON null.
@@ -129,13 +131,17 @@ func (m *MaxOutputTokens) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 // The openai package uses a separate SpeechVoice for a top-level HTTP request member that can omit the
 // id and encode null directly, whereas realtime always encodes a reference id and wraps Voice for null.
 type Voice struct {
-	Name      *string
+	// Name selects a model voice as a JSON string instead of an ID object.
+	Name *string
+	// Reference selects a model voice using an object with an id member instead of a string.
 	Reference *VoiceReference
 }
 
 // VoiceReference names a voice in the object form of audio.output.voice.
 type VoiceReference struct {
-	ID    string                    `json:"id"`
+	// ID matches a voice name from the model's voices list in GET /props.
+	ID string `json:"id"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -179,14 +185,22 @@ func (v *Voice) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 // ClientEvent is a JSON text frame sent to the server. Audio contains PCM16 bytes, not a base64 string.
 type ClientEvent struct {
 	// Raw holds the entire frame for an unrecognized event type. When set, it is sent as-is instead of the typed fields.
-	Raw      jsontext.Value            `json:"-"`
-	Type     EventType                 `json:"type"`
-	Audio    []byte                    `json:"audio,omitzero"`
-	Final    *bool                     `json:"final,omitzero"`
-	Session  *SessionConfig            `json:"session,omitzero"`
-	Item     *Item                     `json:"item,omitzero"`
-	Response *ResponseConfig           `json:"response,omitzero"`
-	Extra    map[string]jsontext.Value `json:",embed"`
+	Raw jsontext.Value `json:"-"`
+	// Type selects the server action taken for this frame.
+	Type EventType `json:"type"`
+	// Audio carries mono PCM16 bytes in input_audio_buffer.append; omitted chunks append nothing.
+	Audio []byte `json:"audio,omitzero"`
+	// Final ends live transcription after pending audio drains when true on input_audio_buffer.commit;
+	// omission makes a normal commit.
+	Final *bool `json:"final,omitzero"`
+	// Session carries the settings to change on session.update or transcription_session.update.
+	Session *SessionConfig `json:"session,omitzero"`
+	// Item carries a user text message or a tool result on conversation.item.create.
+	Item *Item `json:"item,omitzero"`
+	// Response carries optional one-turn overrides on response.create.
+	Response *ResponseConfig `json:"response,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // readEvent identifies a frame without interpreting members whose shape belongs to a different event type.
@@ -236,124 +250,203 @@ func (e ClientEvent) MarshalJSONTo(enc *jsontext.Encoder) error {
 // SessionConfig describes the session in a session event. Updates need only set the desired fields.
 // ID, Object and Model are supplied by the server.
 type SessionConfig struct {
-	ID               *string                   `json:"id,omitzero"`
-	Object           *string                   `json:"object,omitzero"`
-	Type             *string                   `json:"type,omitzero"`
-	Model            *string                   `json:"model,omitzero"`
-	Instructions     *string                   `json:"instructions,omitzero"`
-	OutputModalities Nullable[[]string]        `json:"output_modalities,omitzero"`
-	MaxOutputTokens  *MaxOutputTokens          `json:"max_output_tokens,omitzero"`
-	Tools            []Tool                    `json:"tools,omitzero"`
-	ToolChoice       *string                   `json:"tool_choice,omitzero"`
-	Audio            *AudioConfig              `json:"audio,omitzero"`
-	Extra            map[string]jsontext.Value `json:",embed"`
+	// ID is assigned by the server at handshake and stays the same across updates.
+	ID *string `json:"id,omitzero"`
+	// Object is "realtime.session" for conversation or "realtime.transcription_session" for transcription.
+	Object *string `json:"object,omitzero"`
+	// Type selects "realtime" or "transcription"; turn-based sessions can switch only before audio or messages.
+	Type *string `json:"type,omitzero"`
+	// Model names the loaded model in a conversation snapshot; transcription reports it under Audio instead.
+	Model *string `json:"model,omitzero"`
+	// Instructions sets the system prompt before the first audio or message; omission leaves it unchanged.
+	Instructions *string `json:"instructions,omitzero"`
+	// OutputModalities selects text, audio or both for responses; null resets automatic selection, the default.
+	OutputModalities Nullable[[]string] `json:"output_modalities,omitzero"`
+	// MaxOutputTokens defaults to UnlimitedTokens; positive limits above 2147483647 are capped there.
+	MaxOutputTokens *MaxOutputTokens `json:"max_output_tokens,omitzero"`
+	// Tools replaces the available functions before the first audio or message; an empty list clears them.
+	Tools []Tool `json:"tools,omitzero"`
+	// ToolChoice selects "auto" (the default), "none" or "required" for responses.
+	ToolChoice *string `json:"tool_choice,omitzero"`
+	// Audio configures the PCM input and optional speech output; omission leaves both unchanged.
+	Audio *AudioConfig `json:"audio,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Tool is a realtime function tool. Parameters is the function's JSON schema.
 type Tool struct {
-	Type         string                    `json:"type"`
-	Name         string                    `json:"name"`
-	Description  *string                   `json:"description,omitzero"`
-	Parameters   jsontext.Value            `json:"parameters,omitzero"`
-	DeferLoading *bool                     `json:"defer_loading,omitzero"`
-	Strict       *bool                     `json:"strict,omitzero"`
-	Extra        map[string]jsontext.Value `json:",embed"`
+	// Type must be "function" for the server to use the tool; it skips other values.
+	Type string `json:"type"`
+	// Name is the required function name reported in tool calls.
+	Name string `json:"name"`
+	// Description optionally tells the model when to use the function.
+	Description *string `json:"description,omitzero"`
+	// Parameters describes function arguments as JSON Schema; omission uses an empty object.
+	Parameters jsontext.Value `json:"parameters,omitzero"`
+	// DeferLoading marks this function as deferred in the chat template; omission defaults to false.
+	DeferLoading *bool `json:"defer_loading,omitzero"`
+	// Strict is preserved in session snapshots but does not change argument generation.
+	Strict *bool `json:"strict,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseConfig overrides the corresponding session settings for one response.
 type ResponseConfig struct {
-	OutputModalities Nullable[[]string]        `json:"output_modalities,omitzero"`
-	MaxOutputTokens  *MaxOutputTokens          `json:"max_output_tokens,omitzero"`
-	ToolChoice       *string                   `json:"tool_choice,omitzero"`
-	Extra            map[string]jsontext.Value `json:",embed"`
+	// OutputModalities overrides text or audio selection for this turn; null uses automatic selection.
+	OutputModalities Nullable[[]string] `json:"output_modalities,omitzero"`
+	// MaxOutputTokens overrides the session cap with a positive count or UnlimitedTokens.
+	MaxOutputTokens *MaxOutputTokens `json:"max_output_tokens,omitzero"`
+	// ToolChoice overrides the session mode with "auto", "none" or "required" for this turn.
+	ToolChoice *string `json:"tool_choice,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // AudioConfig describes the input and optional output audio streams.
 type AudioConfig struct {
-	Input  *AudioInput               `json:"input,omitzero"`
-	Output *AudioOutput              `json:"output,omitzero"`
-	Extra  map[string]jsontext.Value `json:",embed"`
+	// Input describes received PCM audio; omitting it on update retains the current input settings.
+	Input *AudioInput `json:"input,omitzero"`
+	// Output describes generated PCM audio and is omitted in snapshots without audio output.
+	Output *AudioOutput `json:"output,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // AudioInput configures PCM input. The server reports null for unsupported preprocessing features.
 type AudioInput struct {
-	Format         *AudioFormat              `json:"format,omitzero"`
-	Transcription  *Transcription            `json:"transcription,omitzero"`
-	TurnDetection  jsontext.Value            `json:"turn_detection,omitzero"`
-	NoiseReduction jsontext.Value            `json:"noise_reduction,omitzero"`
-	Extra          map[string]jsontext.Value `json:",embed"`
+	// Format reports or sets the PCM16 mono input sample rate; omitted updates leave it unchanged.
+	Format *AudioFormat `json:"format,omitzero"`
+	// Transcription reports transcription settings and allows updates in turn-based transcription sessions.
+	Transcription *Transcription `json:"transcription,omitzero"`
+	// TurnDetection is reported as null because the server does not use automatic turn detection for this API.
+	TurnDetection jsontext.Value `json:"turn_detection,omitzero"`
+	// NoiseReduction is reported as null in live transcription snapshots and omitted otherwise.
+	NoiseReduction jsontext.Value `json:"noise_reduction,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // AudioOutput describes the generated audio stream. The server selects the format.
 type AudioOutput struct {
-	Format   *AudioFormat              `json:"format,omitzero"`
-	Voice    Nullable[Voice]           `json:"voice,omitzero"`
-	Language Nullable[string]          `json:"language,omitzero"`
-	Extra    map[string]jsontext.Value `json:",embed"`
+	// Format reports the model's mono PCM16 output sample rate; settings updates cannot override it.
+	Format *AudioFormat `json:"format,omitzero"`
+	// Voice selects a model voice before the first audio or message; null clears the configured voice.
+	Voice Nullable[Voice] `json:"voice,omitzero"`
+	// Language selects speech language before the first audio or message; null and omission leave it unchanged.
+	Language Nullable[string] `json:"language,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // AudioFormat identifies PCM16 mono audio and its sample rate in Hz.
 type AudioFormat struct {
-	Type  *string                   `json:"type,omitzero"`
-	Rate  *int                      `json:"rate,omitzero"`
+	// Type is reported as "audio/pcm" for mono PCM16 and is not read from updates.
+	Type *string `json:"type,omitzero"`
+	// Rate is the sample rate in Hz, defaulting to the model rate; input updates accept 8000 to 192000 Hz.
+	Rate *int `json:"rate,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Transcription specifies the language and prompt for transcription. The server supplies Model.
 type Transcription struct {
-	Model    *string                   `json:"model,omitzero"`
-	Language Nullable[string]          `json:"language,omitzero"`
-	Prompt   *string                   `json:"prompt,omitzero"`
-	Extra    map[string]jsontext.Value `json:",embed"`
+	// Model names the loaded transcription model in session snapshots and is not read from updates.
+	Model *string `json:"model,omitzero"`
+	// Language sets the language hint for turn-based transcription; null and omission leave the hint unchanged.
+	Language Nullable[string] `json:"language,omitzero"`
+	// Prompt overrides the default turn-based transcription instruction when supported by the model.
+	Prompt *string `json:"prompt,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Item is a conversation message, function call or function call output, identified by Type.
 type Item struct {
-	ID        *string                   `json:"id,omitzero"`
-	Object    *string                   `json:"object,omitzero"`
-	Type      string                    `json:"type"`
-	Role      *string                   `json:"role,omitzero"`
-	Status    *string                   `json:"status,omitzero"`
-	Content   []ContentPart             `json:"content,omitzero"`
-	CallID    *string                   `json:"call_id,omitzero"`
-	Name      *string                   `json:"name,omitzero"`
-	Arguments *string                   `json:"arguments,omitzero"`
-	Output    *string                   `json:"output,omitzero"`
-	Extra     map[string]jsontext.Value `json:",embed"`
+	// ID is echoed on item creation if supplied; otherwise the server assigns it.
+	ID *string `json:"id,omitzero"`
+	// Object is "realtime.item" on items emitted by the server.
+	Object *string `json:"object,omitzero"`
+	// Type selects "message", "function_call" or "function_call_output"; only the server sends function calls.
+	Type string `json:"type"`
+	// Role is required to be "user" for a submitted message and is omitted on tool calls and results.
+	Role *string `json:"role,omitzero"`
+	// Status is "completed" for caller items and "in_progress", "completed" or "cancelled" for generated items.
+	Status *string `json:"status,omitzero"`
+	// Content contains message parts; item creation accepts only input_text parts, which the server concatenates.
+	Content []ContentPart `json:"content,omitzero"`
+	// CallID links a function_call_output to a function_call from the last response.
+	CallID *string `json:"call_id,omitzero"`
+	// Name identifies the function on a generated function_call item, not its result.
+	Name *string `json:"name,omitzero"`
+	// Arguments is the tool call's JSON argument text, initially empty in response.output_item.added.
+	Arguments *string `json:"arguments,omitzero"`
+	// Output supplies the function result as text, defaulting to an empty string on function_call_output.
+	Output *string `json:"output,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ContentPart is input_text, input_audio, output_text or output_audio within a message item.
 type ContentPart struct {
-	Type       string                    `json:"type"`
-	Text       *string                   `json:"text,omitzero"`
-	Transcript *string                   `json:"transcript,omitzero"`
-	Extra      map[string]jsontext.Value `json:",embed"`
+	// Type describes the direction and modality; only the server supplies values other than "input_text".
+	Type string `json:"type"`
+	// Text carries input or output text, empty when omitted on input or when an output part first opens.
+	Text *string `json:"text,omitzero"`
+	// Transcript is empty on output_audio parts; generated text is emitted separately as output_text.
+	Transcript *string `json:"transcript,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ServerEvent is a frame received from the server. Type determines the populated fields.
 // Delta carries text, partial JSON arguments, or base64 PCM16 for ResponseOutputAudioDelta.
 type ServerEvent struct {
 	// Raw holds the entire frame for an unrecognized event type. When set, it is encoded instead of the typed fields.
-	Raw            jsontext.Value            `json:"-"`
-	Type           EventType                 `json:"type"`
-	EventID        string                    `json:"event_id"`
-	Session        *SessionConfig            `json:"session,omitzero"`
-	Item           *Item                     `json:"item,omitzero"`
-	ItemID         *string                   `json:"item_id,omitzero"`
-	PreviousItemID Nullable[string]          `json:"previous_item_id,omitzero"`
-	Response       *Response                 `json:"response,omitzero"`
-	ResponseID     *string                   `json:"response_id,omitzero"`
-	OutputIndex    *int                      `json:"output_index,omitzero"`
-	ContentIndex   *int                      `json:"content_index,omitzero"`
-	Part           *ContentPart              `json:"part,omitzero"`
-	Delta          *string                   `json:"delta,omitzero"`
-	Text           *string                   `json:"text,omitzero"`
-	Transcript     *string                   `json:"transcript,omitzero"`
-	CallID         *string                   `json:"call_id,omitzero"`
-	Name           *string                   `json:"name,omitzero"`
-	Arguments      *string                   `json:"arguments,omitzero"`
-	Error          *EventError               `json:"error,omitzero"`
-	Extra          map[string]jsontext.Value `json:",embed"`
+	Raw jsontext.Value `json:"-"`
+	// Type identifies the server event and determines which payload members are present.
+	Type EventType `json:"type"`
+	// EventID is assigned independently by the server for each event frame.
+	EventID string `json:"event_id"`
+	// Session is the configuration snapshot in session.created and session.updated.
+	Session *SessionConfig `json:"session,omitzero"`
+	// Item describes the item on [ConversationItemAdded], [ConversationItemDone],
+	// [ResponseOutputItemAdded] and [ResponseOutputItemDone].
+	Item *Item `json:"item,omitzero"`
+	// ItemID links audio commits, transcription, response content parts, text/audio output and tool-argument events
+	// to the corresponding item.
+	ItemID *string `json:"item_id,omitzero"`
+	// PreviousItemID links input_audio_buffer.committed, conversation.item.added and conversation.item.done
+	// to the preceding item, or is null for the first item.
+	PreviousItemID Nullable[string] `json:"previous_item_id,omitzero"`
+	// Response is the response snapshot on response.created and response.done.
+	Response *Response `json:"response,omitzero"`
+	// ResponseID ties output-item, content-part, text/audio output and tool-argument events to their response.
+	ResponseID *string `json:"response_id,omitzero"`
+	// OutputIndex gives the zero-based position in Response.Output on events that carry ResponseID.
+	OutputIndex *int `json:"output_index,omitzero"`
+	// ContentIndex gives the zero-based part index on response content-part and text/audio output events and is 0
+	// on input audio transcription events.
+	ContentIndex *int `json:"content_index,omitzero"`
+	// Part is the content snapshot on response.content_part.added and response.content_part.done.
+	Part *ContentPart `json:"part,omitzero"`
+	// Delta carries transcript text, output text, base64 PCM16 or partial tool JSON in the matching delta event.
+	Delta *string `json:"delta,omitzero"`
+	// Text is the full generated text on response.output_text.done.
+	Text *string `json:"text,omitzero"`
+	// Transcript is the full text of the input item on conversation.item.input_audio_transcription.completed.
+	Transcript *string `json:"transcript,omitzero"`
+	// CallID identifies the call on [ResponseFunctionCallArgumentsDelta] and [ResponseFunctionCallArgumentsDone].
+	CallID *string `json:"call_id,omitzero"`
+	// Name identifies the called function on response.function_call_arguments.done.
+	Name *string `json:"name,omitzero"`
+	// Arguments is the complete argument string on response.function_call_arguments.done.
+	Arguments *string `json:"arguments,omitzero"`
+	// Error is the diagnostic object on an error event.
+	Error *EventError `json:"error,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // UnmarshalJSONFrom decodes a known server event or retains an unknown frame in Raw.
@@ -391,26 +484,40 @@ func (e ServerEvent) MarshalJSONTo(enc *jsontext.Encoder) error {
 
 // Response is the generated response in response.created or response.done.
 type Response struct {
-	ID               string                    `json:"id"`
-	Object           string                    `json:"object"`
-	Status           string                    `json:"status"`
-	OutputModalities Nullable[[]string]        `json:"output_modalities,omitzero"`
-	Output           []Item                    `json:"output"`
-	Usage            *Usage                    `json:"usage,omitzero"`
-	Extra            map[string]jsontext.Value `json:",embed"`
+	// ID is assigned when the response opens and stays the same through response.done.
+	ID string `json:"id"`
+	// Object is "realtime.response" in both snapshots.
+	Object string `json:"object"`
+	// Status is "in_progress" on response.created and "completed" or "cancelled" on response.done.
+	Status string `json:"status"`
+	// OutputModalities is the chosen mode in response.created, null for automatic, and omitted in response.done.
+	OutputModalities Nullable[[]string] `json:"output_modalities,omitzero"`
+	// Output is empty on response.created and contains the generated items in order on response.done.
+	Output []Item `json:"output"`
+	// Usage reports the total generated tokens only on response.done.
+	Usage *Usage `json:"usage,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Usage counts generated tokens in a finished response.
 type Usage struct {
-	OutputTokens int                       `json:"output_tokens"`
-	Extra        map[string]jsontext.Value `json:",embed"`
+	// OutputTokens counts tokens decoded for this response, excluding prompt tokens.
+	OutputTokens int `json:"output_tokens"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // EventError is the error object of an error event; many such errors leave the session usable.
 type EventError struct {
-	Type    string                    `json:"type"`
-	Code    *string                   `json:"code"`
-	Message string                    `json:"message"`
-	Param   *string                   `json:"param"`
-	Extra   map[string]jsontext.Value `json:",embed"`
+	// Type carries the server reason, such as "invalid_request_error" or "conversation_empty".
+	Type string `json:"type"`
+	// Code is always null; the server reports the reason in Type instead.
+	Code *string `json:"code"`
+	// Message describes the problem in text for the caller.
+	Message string `json:"message"`
+	// Param is always null because the server does not identify a specific parameter here.
+	Param *string `json:"param"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }

@@ -22,24 +22,35 @@ import (
 
 // ChoiceAnswer names the most probable option and gives the distribution across all options.
 type ChoiceAnswer struct {
-	Choice        string                    `json:"choice"`
-	Probabilities map[string]float64        `json:"probabilities"`
-	Confidence    float64                   `json:"confidence"`
-	Extra         map[string]jsontext.Value `json:",embed"`
+	// Choice is the key of the highest-probability option in the request criteria.
+	Choice string `json:"choice"`
+	// Probabilities maps every option key to its probability, with a total of 1.
+	Probabilities map[string]float64 `json:"probabilities"`
+	// Confidence measures how concentrated the option probabilities are on a model-dependent scale from 0 to 1.
+	Confidence float64 `json:"confidence"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ScoreAnswer reports the expected level index (the median level for lfm3-d1 models).
 type ScoreAnswer struct {
-	Score         float64                   `json:"score"`
-	Legend        map[string]jsontext.Value `json:"legend"`
-	Probabilities map[string]float64        `json:"probabilities"`
-	Confidence    float64                   `json:"confidence"`
-	Extra         map[string]jsontext.Value `json:",embed"`
+	// Score is the probability-weighted level index starting at 0, or the median level for lfm3-d1 models.
+	Score float64 `json:"score"`
+	// Legend maps stringified level indexes to their request descriptions.
+	Legend map[string]jsontext.Value `json:"legend"`
+	// Probabilities maps stringified level indexes to probabilities totaling 1.
+	Probabilities map[string]float64 `json:"probabilities"`
+	// Confidence is a model-dependent certainty measure from 0 to 1.
+	Confidence float64 `json:"confidence"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // NoulAnswer gives the probability that a statement is true.
 type NoulAnswer struct {
-	Noul  float64                   `json:"noul"`
+	// Noul is the model's estimated probability from 0 to 1 that the statement is true.
+	Noul float64 `json:"noul"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -51,7 +62,10 @@ func (ScoreAnswer) isAnswer()  {}
 func (NoulAnswer) isAnswer()   {}
 
 // Answer contains a typed result. Use a type switch on Value to inspect it.
-type Answer struct{ Value AnswerValue }
+type Answer struct {
+	// Value is the decoded result selected by the server's type discriminator.
+	Value AnswerValue
+}
 
 type choiceWire struct {
 	Type string `json:"type"`

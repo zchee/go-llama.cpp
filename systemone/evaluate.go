@@ -156,12 +156,18 @@ func (p *Payload) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 // single-model servers ignore it. Files and Images are alternative spellings for a list of media
 // data URLs; set at most one. Extra cannot override any named request field.
 type Request struct {
-	Model     string                    `json:"model,omitzero"`
-	State     Payload                   `json:"state"`
-	Questions map[string]Question       `json:"questions"`
-	Files     []string                  `json:"files,omitzero"`
-	Images    []string                  `json:"images,omitzero"`
-	Extra     map[string]jsontext.Value `json:",embed"`
+	// Model selects the target in router mode and is ignored by a single-model server.
+	Model string `json:"model,omitzero"`
+	// State is required text or JSON to evaluate; some models accept explicit null for media-only input.
+	State Payload `json:"state"`
+	// Questions is a required, nonempty map from caller-chosen IDs to questions about the state.
+	Questions map[string]Question `json:"questions"`
+	// Files supplies optional media data URLs to place before State, subject to the model's media and count limits.
+	Files []string `json:"files,omitzero"`
+	// Images is an optional alias for Files, which the client does not allow in the same request.
+	Images []string `json:"images,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // MarshalJSONTo implements json.MarshalerTo.
@@ -187,17 +193,24 @@ func reserved(extra map[string]jsontext.Value, names ...string) error {
 
 // Response contains the loaded model's answers, keyed by question ID.
 type Response struct {
-	Model   string                    `json:"model"`
-	Answers map[string]Answer         `json:"answers"`
-	Usage   Usage                     `json:"usage"`
-	Extra   map[string]jsontext.Value `json:",embed"`
+	// Model is the server-reported name of the decision model that answered the request.
+	Model string `json:"model"`
+	// Answers maps the request's question IDs to results of their respective types.
+	Answers map[string]Answer `json:"answers"`
+	// Usage reports token counts for the whole request, not individual answers.
+	Usage Usage `json:"usage"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Usage counts prompt tokens across the questions. OutputTokens is zero for decision models.
 type Usage struct {
-	InputTokens  int                       `json:"input_tokens"`
-	OutputTokens int                       `json:"output_tokens"`
-	Extra        map[string]jsontext.Value `json:",embed"`
+	// InputTokens counts prompt tokens for all answered questions.
+	InputTokens int `json:"input_tokens"`
+	// OutputTokens is always 0 because the decision endpoint does not generate tokens.
+	OutputTokens int `json:"output_tokens"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Evaluate answers the questions in req using POST /v1/systemone. This endpoint does not stream.

@@ -22,11 +22,12 @@ import (
 
 // Message is a user or assistant turn in the conversation history.
 type Message struct {
-	// Role is the speaker of the turn.
+	// Role identifies who supplied the turn, typically "user" or "assistant".
 	Role string `json:"role"`
-	// Content is text or a list of blocks. The server skips an assistant turn with omitted content.
-	Content Content                   `json:"content,omitzero"`
-	Extra   map[string]jsontext.Value `json:",embed"`
+	// Content is text or a list of blocks; the server skips an assistant turn with omitted content.
+	Content Content `json:"content,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Content holds a string, a list of blocks, an explicit null, or any other JSON value the server
@@ -132,31 +133,32 @@ func (c *Content) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // ContentBlock is one block of message content. System instructions use only text blocks.
 type ContentBlock struct {
-	// Type selects text, thinking, image, tool_use, tool_result or a tool_reference inside a result.
-	// The server skips a block whose type it does not know, an omitted type included.
+	// Type selects text, thinking, image, tool_use, tool_result or a nested tool_reference; unknown or absent types
+	// are skipped.
 	Type string `json:"type,omitzero"`
-	// Text holds a text block's content.
+	// Text supplies a text block's payload; system and tool-result conversions treat omission as an empty string.
 	Text *string `json:"text,omitzero"`
-	// Thinking holds model reasoning.
+	// Thinking is model reasoning, concatenated into the reasoning history when replayed.
 	Thinking *string `json:"thinking,omitzero"`
 	// Signature is empty in thinking blocks emitted by local models.
 	Signature *string `json:"signature,omitzero"`
-	// Source supplies the image of an image block.
+	// Source specifies the bytes or URL for an image block; the converter skips an unrecognized source type.
 	Source *ImageSource `json:"source,omitzero"`
-	// ID identifies a tool_use block.
+	// ID links a tool_use block to a later tool_result with the same ToolUseID.
 	ID *string `json:"id,omitzero"`
-	// Name is the called tool's name.
+	// Name is the called function's name in a tool_use block.
 	Name *string `json:"name,omitzero"`
-	// Input holds the tool arguments as a JSON value, not a JSON-encoded string.
+	// Input holds tool arguments as a JSON value, not a JSON-encoded string; omitted tool_use input defaults to {}.
 	Input jsontext.Value `json:"input,omitzero"`
 	// ToolUseID identifies the call a tool_result block answers.
 	ToolUseID *string `json:"tool_use_id,omitzero"`
-	// Content holds a tool result's text or nested text, image and tool_reference blocks.
+	// Content is a tool result's text or nested blocks; an omitted value becomes an empty string.
 	Content Content `json:"content,omitzero"`
-	// ToolName names the deferred tool in a tool_reference.
-	ToolName *string                   `json:"tool_name,omitzero"`
-	Extra    map[string]jsontext.Value `json:",embed"`
-	null     bool
+	// ToolName identifies a deferred tool to expose through a nested tool_reference.
+	ToolName *string `json:"tool_name,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
+	null  bool
 }
 
 // IsNull reports whether the block represents a null array element ignored by the server.
@@ -190,13 +192,14 @@ func (b *ContentBlock) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // ImageSource supplies an image by URL or as base64 data.
 type ImageSource struct {
-	// Type is "base64" or "url".
+	// Type selects "base64" or "url"; the converter does not interpret an omitted type.
 	Type string `json:"type"`
 	// MediaType is the MIME type of base64 data; the server defaults to image/jpeg.
 	MediaType *string `json:"media_type,omitzero"`
-	// Data is the base64-encoded image.
+	// Data contains base64-encoded image bytes without a data URL prefix for a "base64" source.
 	Data *string `json:"data,omitzero"`
-	// URL is the location of an image for a url source.
-	URL   *string                   `json:"url,omitzero"`
+	// URL is fetched or decoded by the server for a "url" source, subject to its media access settings.
+	URL *string `json:"url,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }

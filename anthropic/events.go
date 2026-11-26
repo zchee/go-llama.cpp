@@ -22,14 +22,15 @@ type MessageEvent struct {
 	Type string `json:"type"`
 	// Message is the initial assistant message in message_start.
 	Message *MessageResponse `json:"message,omitzero"`
-	// Index identifies the content block being opened, updated or closed.
+	// Index is the zero-based position of the block being opened, updated or closed.
 	Index *int `json:"index,omitzero"`
 	// ContentBlock is the initial block in content_block_start.
 	ContentBlock *ContentBlock `json:"content_block,omitzero"`
 	// Delta carries the update in content_block_delta and message_delta.
 	Delta *Delta `json:"delta,omitzero"`
 	// Usage is the output token count in message_delta.
-	Usage *DeltaUsage               `json:"usage,omitzero"`
+	Usage *DeltaUsage `json:"usage,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -47,6 +48,7 @@ type Delta struct {
 	PartialJSON *string `json:"partial_json,omitzero"`
 	// StopDetails is present only in message_delta.
 	*StopDetails
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -61,6 +63,7 @@ type StopDetails struct {
 // DeltaUsage is the generation count in message_delta, which does not repeat the prompt counts.
 type DeltaUsage struct {
 	// OutputTokens is the total number of generated tokens.
-	OutputTokens int                       `json:"output_tokens"`
-	Extra        map[string]jsontext.Value `json:",embed"`
+	OutputTokens int `json:"output_tokens"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }

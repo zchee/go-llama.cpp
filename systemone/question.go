@@ -28,10 +28,15 @@ type ScoreCriteria []Payload
 
 // NoulCriteria describes the false and true alternatives. Some models also accept No and Yes.
 type NoulCriteria struct {
-	False Payload                   `json:"false,omitzero"`
-	True  Payload                   `json:"true,omitzero"`
-	No    Payload                   `json:"no,omitzero"`
-	Yes   Payload                   `json:"yes,omitzero"`
+	// False describes the negative answer; if omitted, the server can use No on models that accept it.
+	False Payload `json:"false,omitzero"`
+	// True describes the positive answer; if omitted, the server can use Yes on models that accept it.
+	True Payload `json:"true,omitzero"`
+	// No is an optional alias for False on lfm2-d1-omni and h2o-lightning, ignored when False is present.
+	No Payload `json:"no,omitzero"`
+	// Yes is an optional alias for True on lfm2-d1-omni and h2o-lightning, ignored when True is present.
+	Yes Payload `json:"yes,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -45,10 +50,14 @@ func (*NoulCriteria) isCriteria()  {}
 // Question asks for one choice, an ordinal score, or the probability that a statement is true.
 // A model with default instructions can distinguish an unset Payload from Null.
 type Question struct {
-	Type         string                    `json:"type,omitzero"`
-	Instructions Payload                   `json:"instructions,omitzero"`
-	Criteria     Criteria                  `json:"criteria,omitzero"`
-	Extra        map[string]jsontext.Value `json:",embed"`
+	// Type selects "choice", "score" or "noul"; only h2o-lightning defaults to "choice" when it is omitted.
+	Type string `json:"type,omitzero"`
+	// Instructions supplies the question as text or JSON; omit it only for models with a default or fixed question.
+	Instructions Payload `json:"instructions,omitzero"`
+	// Criteria gives the options for choice or the ordered levels for score, and may be omitted for noul.
+	Criteria Criteria `json:"criteria,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Choice asks which option best describes the state.
