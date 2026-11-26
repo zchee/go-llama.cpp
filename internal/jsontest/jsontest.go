@@ -192,7 +192,7 @@ func InjectUnknown[T any](t testing.TB, data []byte, opts ...InjectOption) {
 
 	tree := generic(t, data)
 	var paths []string
-	tree = inject(tree, "", cfg, &paths)
+	inject(tree, "", cfg, &paths)
 	if len(paths) == 0 {
 		t.Fatalf("no JSON object to inject into: %s", data)
 	}
@@ -227,24 +227,20 @@ func InjectUnknown[T any](t testing.TB, data []byte, opts ...InjectOption) {
 }
 
 // inject adds the synthetic member to every object of v and records the JSON pointer of each.
-func inject(v any, path string, cfg *injectConfig, paths *[]string) any {
+func inject(v any, path string, cfg *injectConfig, paths *[]string) {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, e := range x {
-			x[k] = inject(e, path+"/"+escapePointer(k), cfg, paths)
+			inject(e, path+"/"+escapePointer(k), cfg, paths)
 		}
 		if !skipped(path, cfg.skip) {
 			x[injectedName] = path
 			*paths = append(*paths, path)
 		}
-		return x
 	case []any:
 		for i, e := range x {
-			x[i] = inject(e, path+"/"+strconv.Itoa(i), cfg, paths)
+			inject(e, path+"/"+strconv.Itoa(i), cfg, paths)
 		}
-		return x
-	default:
-		return v
 	}
 }
 
