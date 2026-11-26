@@ -13,6 +13,7 @@ require (
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/tmaxmax/go-sse v0.12.0 // indirect
 )
