@@ -18,27 +18,101 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 )
 
-// RerankInput is a query or candidate document. Its zero value is an empty string.
+// RerankInput is a query or candidate document. Its zero value encodes as an
+// empty string on its own but is omitted when used as a request's Query.
 type RerankInput struct {
-	text   string
-	object *RerankObject
+	text    string
+	object  *RerankObject
+	hasText bool
 }
 
-// RerankObject is an input in object form. The server concatenates text fragments without a separator.
+// RerankObject is an input in object form. The server concatenates text fragments
+// without a separator. Explicit JSON nulls for Text and Image are preserved on
+// round trips, separately from absent fields.
 type RerankObject struct {
 	// Text is a string or a list of fragments.
 	Text StringOrSlice `json:"text,omitzero"`
 	// Image is one image or a list, specified by URL, data URI, or raw base64.
 	Image StringOrSlice             `json:"image,omitzero"`
 	Extra map[string]jsontext.Value `json:",embed"`
+
+	nullText, nullImage bool
+}
+
+type rerankObjectJSON struct {
+	Text  rerankObjectField         `json:"text,omitzero"`
+	Image rerankObjectField         `json:"image,omitzero"`
+	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+// rerankObjectField preserves explicit null and rejects null array elements,
+// which StringOrSlice would decode as empty strings.
+type rerankObjectField struct {
+	StringOrSlice
+	null bool
+}
+
+func (f rerankObjectField) IsZero() bool { return !f.null && f.StringOrSlice.IsZero() }
+
+func (f *rerankObjectField) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	var value StringOrSlice
+	if dec.PeekKind() != '[' {
+		if err := value.UnmarshalJSONFrom(dec); err != nil {
+			return err
+		}
+	} else {
+		if _, err := dec.ReadToken(); err != nil {
+			return err
+		}
+		value.values = []string{}
+		for dec.PeekKind() != ']' {
+			tok, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			if tok.Kind() != '"' {
+				return fmt.Errorf("llama: rerank input array elements must be strings, got %s", tok.Kind())
+			}
+			value.values = append(value.values, tok.String())
+		}
+		if _, err := dec.ReadToken(); err != nil {
+			return err
+		}
+	}
+	*f = rerankObjectField{StringOrSlice: value, null: value.IsZero()}
+	return nil
+}
+
+func (o RerankObject) wire() rerankObjectJSON {
+	return rerankObjectJSON{
+		Text:  rerankObjectField{StringOrSlice: o.Text, null: o.nullText},
+		Image: rerankObjectField{StringOrSlice: o.Image, null: o.nullImage},
+		Extra: o.Extra,
+	}
+}
+
+// MarshalJSONTo encodes an object input, preserving explicit null fields.
+func (o RerankObject) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return json.MarshalEncode(enc, o.wire())
+}
+
+// UnmarshalJSONFrom decodes an object input, requiring string elements in arrays.
+func (o *RerankObject) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	w := o.wire()
+	if err := json.UnmarshalDecode(dec, &w); err != nil {
+		return err
+	}
+	*o = RerankObject{Text: w.Text.StringOrSlice, Image: w.Image.StringOrSlice, Extra: w.Extra, nullText: w.Text.null, nullImage: w.Image.null}
+	return nil
 }
 
 // RerankText constructs a plain string query or document.
-func RerankText(text string) RerankInput { return RerankInput{text: text} }
+func RerankText(text string) RerankInput { return RerankInput{text: text, hasText: true} }
 
 // RerankObjectInput constructs a query or document in object form.
 func RerankObjectInput(o RerankObject) RerankInput { return RerankInput{object: &o} }
@@ -48,6 +122,9 @@ func (v RerankInput) Text() (string, bool) { return v.text, v.object == nil }
 
 // Object returns the object, or nil for a plain string.
 func (v RerankInput) Object() *RerankObject { return v.object }
+
+// IsZero reports whether no query or document was constructed or decoded.
+func (v RerankInput) IsZero() bool { return !v.hasText && v.object == nil }
 
 // MarshalJSONTo encodes the input in the form in which it was built or decoded.
 func (v RerankInput) MarshalJSONTo(enc *jsontext.Encoder) error {
@@ -80,14 +157,14 @@ func (v *RerankInput) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // RerankRequest ranks Documents in Jina format.
 type RerankRequest struct {
-	// Query is compared with every document.
-	Query RerankInput `json:"query"`
+	// Query is required by the server. The zero value is omitted; RerankText("") sends an empty query.
+	Query RerankInput `json:"query,omitzero"`
 	// Documents must contain at least one candidate.
 	Documents []RerankInput `json:"documents"`
 	// Model selects the model in router mode and is echoed in the response.
 	Model *string `json:"model,omitzero"`
 	// TopN limits the returned results; nil returns all, zero returns none.
-	TopN  *int                      `json:"top_n,omitzero"`
+	TopN  *int32                    `json:"top_n,omitzero"`
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -124,14 +201,14 @@ type RerankResult struct {
 
 // RerankTEIRequest ranks Texts in Text Embeddings Inference format.
 type RerankTEIRequest struct {
-	// Query is compared with every candidate.
-	Query RerankInput `json:"query"`
+	// Query is required by the server. The zero value is omitted; RerankText("") sends an empty query.
+	Query RerankInput `json:"query,omitzero"`
 	// Texts must contain at least one candidate.
 	Texts []RerankInput `json:"texts"`
 	// Model selects the model in router mode.
 	Model *string `json:"model,omitzero"`
 	// TopN limits the returned results; nil returns all, zero returns none.
-	TopN *int `json:"top_n,omitzero"`
+	TopN *int32 `json:"top_n,omitzero"`
 	// ReturnText asks the server to echo the text of each returned document.
 	ReturnText *bool                     `json:"return_text,omitzero"`
 	Extra      map[string]jsontext.Value `json:",embed"`
@@ -149,11 +226,25 @@ type RerankTEIResult struct {
 }
 
 // Rerank scores documents with POST /reranking and returns the wrapped Jina response.
+// It rejects a "texts" key in req.Extra before sending. Nil or empty Documents
+// are sent and rejected by the server.
 func (c *Client) Rerank(ctx context.Context, req *RerankRequest, opts ...RequestOption) (*RerankResponse, error) {
+	if req != nil {
+		if _, ok := req.Extra["texts"]; ok {
+			return nil, errors.New(`llama: Rerank request cannot include "texts"; it selects the TEI format`)
+		}
+	}
 	return Call[*RerankResponse](ctx, c, http.MethodPost, "/reranking", req, opts...)
 }
 
 // RerankTEI scores documents with POST /reranking and returns TEI results in descending score order.
+// It rejects a "documents" key in req.Extra before sending. Nil or empty Texts
+// are sent and rejected by the server.
 func (c *Client) RerankTEI(ctx context.Context, req *RerankTEIRequest, opts ...RequestOption) ([]RerankTEIResult, error) {
+	if req != nil {
+		if _, ok := req.Extra["documents"]; ok {
+			return nil, errors.New(`llama: RerankTEI request cannot include "documents"; it takes precedence over "texts"`)
+		}
+	}
 	return Call[[]RerankTEIResult](ctx, c, http.MethodPost, "/reranking", req, opts...)
 }

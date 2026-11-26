@@ -108,6 +108,8 @@ func TestRerankInput(t *testing.T) {
 		"error: null input":               {wire: `null`, invalid: true},
 		"error: array instead of object":  {wire: `[]`, invalid: true},
 		"error: numeric text":             {wire: `{"text":1}`, invalid: true},
+		"error: null text element":        {wire: `{"text":[null]}`, invalid: true},
+		"error: null image element":       {wire: `{"image":["one",null]}`, invalid: true},
 		"error: non-string image element": {wire: `{"image":[{}]}`, invalid: true},
 	}
 	for name, tt := range tests {
@@ -126,8 +128,64 @@ func TestRerankInput(t *testing.T) {
 			if s, ok := got.Text(); ok != (tt.want.Object() == nil) || (ok && s != tt.want.text) {
 				t.Errorf("Text() = %q, %t", s, ok)
 			}
-			if diff := gocmp.Diff(tt.want.Object(), got.Object()); diff != "" {
+			if diff := gocmp.Diff(tt.want.Object(), got.Object(), gocmp.AllowUnexported(RerankObject{})); diff != "" {
 				t.Errorf("Object() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRerankObjectNullFields(t *testing.T) {
+	tests := map[string]struct{ wire string }{
+		"success: explicit null fields":            {`{"text":null,"image":null}`},
+		"success: null text and empty image array": {`{"text":null,"image":[]}`},
+		"success: missing fields":                  {`{}`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			jsontest.RoundTrip[RerankObject](t, []byte(tt.wire))
+			jsontest.RoundTrip[RerankInput](t, []byte(tt.wire))
+		})
+	}
+}
+
+func TestRerankRequestQuery(t *testing.T) {
+	tests := map[string]struct{ query string }{
+		"success: omit missing query":      {},
+		"success: keep empty string query": {`"query":"",`},
+		"success: keep object query":       {`"query":{},`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			jsontest.RoundTrip[RerankRequest](t, []byte(`{`+tt.query+`"documents":["Paris"]}`))
+			jsontest.RoundTrip[RerankTEIRequest](t, []byte(`{`+tt.query+`"texts":["Paris"]}`))
+		})
+	}
+}
+
+func TestRerankRequestTopN(t *testing.T) {
+	tests := map[string]struct {
+		topN    string
+		invalid bool
+	}{
+		"success: signed 32-bit maximum":       {topN: `2147483647`},
+		"error: exceeds signed 32-bit maximum": {topN: `4294967296`, invalid: true},
+		"error: below signed 32-bit minimum":   {topN: `-2147483649`, invalid: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			jina := []byte(`{"query":"France","documents":["Paris"],"top_n":` + tt.topN + `}`)
+			tei := []byte(`{"query":"France","texts":["Paris"],"top_n":` + tt.topN + `}`)
+			if !tt.invalid {
+				jsontest.RoundTrip[RerankRequest](t, jina)
+				jsontest.RoundTrip[RerankTEIRequest](t, tei)
+				return
+			}
+			if err := json.Unmarshal(jina, new(RerankRequest)); err == nil {
+				t.Errorf("Jina request accepted out-of-range top_n %s", tt.topN)
+			}
+			if err := json.Unmarshal(tei, new(RerankTEIRequest)); err == nil {
+				t.Errorf("TEI request accepted out-of-range top_n %s", tt.topN)
 			}
 		})
 	}
@@ -150,29 +208,12 @@ func FuzzRerankInput(f *testing.F) {
 			}
 		}
 	}
+	f.Add([]byte(`{"text":null,"image":null}`))
 	f.Fuzz(func(t *testing.T, in []byte) {
-		var v, back RerankInput
-		if err := json.Unmarshal(in, &v); err != nil {
+		if err := json.Unmarshal(in, new(RerankInput)); err != nil {
 			return
 		}
-		out, err := json.Marshal(v, jsonOptions)
-		if err != nil {
-			t.Fatalf("encode decoded input: %v", err)
-		}
-		if err := json.Unmarshal(out, &back); err != nil {
-			t.Fatalf("decode %s: %v", out, err)
-		}
-		// Unknown JSON members may change whitespace or string escaping when re-encoded.
-		normalize := gocmp.Transformer("NormalizeJSON", func(raw jsontext.Value) string {
-			b, err := json.Marshal(raw, jsonOptions)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return string(b)
-		})
-		if diff := gocmp.Diff(v, back, gocmp.AllowUnexported(RerankInput{}), normalize); diff != "" {
-			t.Fatalf("round trip (-first +second):\n%s", diff)
-		}
+		jsontest.RoundTrip[RerankInput](t, in)
 	})
 }
 
@@ -184,7 +225,7 @@ func ExampleClient_Rerank() {
 	res, err := c.Rerank(context.Background(), &RerankRequest{
 		Query:     RerankText("Which city is the capital of France?"),
 		Documents: []RerankInput{RerankText("Paris is the capital of France."), RerankText("Apples are a fruit.")},
-		TopN:      new(1),
+		TopN:      new(int32(1)),
 	})
 	if err != nil {
 		panic(err)
