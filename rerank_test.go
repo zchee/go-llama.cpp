@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -95,6 +96,28 @@ func TestRerankNewRequest(t *testing.T) {
 	}
 }
 
+func TestRerankNewRequestRejectsExtraTopN(t *testing.T) {
+	c, err := New("http://localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := RerankText("France")
+	docs := []RerankInput{RerankText("Paris")}
+	extra := map[string]jsontext.Value{"top_n": jsontext.Value(`4294967296`)}
+	tests := map[string]struct{ body any }{
+		"error: Jina top_n in Extra": {&RerankRequest{Query: query, Documents: docs, Extra: extra}},
+		"error: TEI top_n in Extra":  {&RerankTEIRequest{Query: query, Texts: docs, Extra: extra}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			req, err := c.NewRequest(t.Context(), http.MethodPost, "/reranking", tt.body)
+			if req != nil || err == nil || !strings.Contains(err.Error(), `"top_n"`) {
+				t.Errorf("NewRequest = %v, %v; want no request and a conflict for top_n", req, err)
+			}
+		})
+	}
+}
+
 func TestRerankInput(t *testing.T) {
 	tests := map[string]struct {
 		wire    string
@@ -145,6 +168,44 @@ func TestRerankObjectNullFields(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			jsontest.RoundTrip[RerankObject](t, []byte(tt.wire))
 			jsontest.RoundTrip[RerankInput](t, []byte(tt.wire))
+		})
+	}
+}
+
+func TestRerankObjectClearFields(t *testing.T) {
+	tests := map[string]struct {
+		clear func(*RerankObject)
+		want  string
+	}{
+		"success: clear text without clearing image null": {
+			clear: func(o *RerankObject) {
+				o.Text = StringValue("Paris")
+				o.ClearText()
+			},
+			want: `{"image":null,"unknown":true}`,
+		},
+		"success: clear image without clearing text null": {
+			clear: func(o *RerankObject) {
+				o.Image = StringSlice("picture")
+				o.ClearImage()
+			},
+			want: `{"text":null,"unknown":true}`,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var o RerankObject
+			if err := json.Unmarshal([]byte(`{"text":null,"image":null,"unknown":true}`), &o); err != nil {
+				t.Fatal(err)
+			}
+			tt.clear(&o)
+			got, err := json.Marshal(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(tt.want, string(got)); diff != "" {
+				t.Errorf("cleared object (-want +got):\n%s", diff)
+			}
 		})
 	}
 }

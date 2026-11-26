@@ -33,7 +33,8 @@ type RerankInput struct {
 
 // RerankObject is an input in object form. The server concatenates text fragments
 // without a separator. Explicit JSON nulls for Text and Image are preserved on
-// round trips, separately from absent fields.
+// round trips, separately from absent fields. Use ClearText or ClearImage to
+// omit a field, including one originally decoded as null.
 type RerankObject struct {
 	// Text is a string or a list of fragments.
 	Text StringOrSlice `json:"text,omitzero"`
@@ -43,6 +44,12 @@ type RerankObject struct {
 
 	nullText, nullImage bool
 }
+
+// ClearText clears Text so that it is omitted when the object is encoded.
+func (o *RerankObject) ClearText() { o.Text, o.nullText = StringOrSlice{}, false }
+
+// ClearImage clears Image so that it is omitted when the object is encoded.
+func (o *RerankObject) ClearImage() { o.Image, o.nullImage = StringOrSlice{}, false }
 
 type rerankObjectJSON struct {
 	Text  rerankObjectField         `json:"text,omitzero"`

@@ -135,6 +135,36 @@ func TestRerankCandidateLists(t *testing.T) {
 	}
 }
 
+func TestRerankRejectsExtraTopN(t *testing.T) {
+	srv := rerankPreset.server(t)
+	query := llama.RerankText("France")
+	docs := []llama.RerankInput{llama.RerankText("Paris")}
+	extra := map[string]jsontext.Value{"top_n": jsontext.Value(`4294967296`)}
+	tests := map[string]struct {
+		call func(*testing.T, *llama.Client) error
+	}{
+		"error: Jina top_n in Extra": {call: func(t *testing.T, c *llama.Client) error {
+			_, err := c.Rerank(t.Context(), &llama.RerankRequest{Query: query, Documents: docs, Extra: extra})
+			return err
+		}},
+		"error: TEI top_n in Extra": {call: func(t *testing.T, c *llama.Client) error {
+			_, err := c.RerankTEI(t.Context(), &llama.RerankTEIRequest{Query: query, Texts: docs, Extra: extra})
+			return err
+		}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c, observer := srv.Client(t)
+			if err := tt.call(t, c); err == nil || !strings.Contains(err.Error(), `"top_n"`) {
+				t.Errorf("reranking error = %v, want a conflict for top_n", err)
+			}
+			if got := len(observer.Exchanges()); got != 0 {
+				t.Errorf("sent %d requests despite conflicting top_n, want none", got)
+			}
+		})
+	}
+}
+
 func TestRerankErrors(t *testing.T) {
 	doc := llama.RerankText("Paris")
 	tests := map[string]struct {
