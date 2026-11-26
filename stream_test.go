@@ -15,7 +15,9 @@
 package llama
 
 import (
+	"bytes"
 	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -26,6 +28,8 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
 // chunk is a minimal event payload used to check decoding.
@@ -205,6 +209,55 @@ func TestDecodeStream(t *testing.T) {
 	apiErr, ok := errors.AsType[*APIError](got.err)
 	if !ok || apiErr.StatusCode != 0 || apiErr.Type != ErrorTypeServer {
 		t.Errorf("DecodeStream error = %#v, want an *APIError with zero StatusCode", got.err)
+	}
+}
+
+func TestDecodeStreamRejectsTwoJSONValuesInOneEvent(t *testing.T) {
+	got := collect(DecodeStream[chunk](strings.NewReader("data: {} {}\n\n"), 0))
+	if got.err == nil || len(got.events) != 0 {
+		t.Fatalf("got %v events and %v error, want only a decode error", got.events, got.err)
+	}
+}
+
+func TestDecodeStreamAllocations(t *testing.T) {
+	data := jsontest.ReadFile(t, "openai/testdata/chat_completions/stream.resp.sse")
+	events := jsontest.EventData(t, data)
+	retained := make([]*jsontext.Value, len(events))
+	var input bytes.Reader
+	const runs = 1000
+	// Measure JSON separately: the race detector randomly discards pooled JSON decoders.
+	baseline := testing.AllocsPerRun(runs, func() {
+		for i, event := range events {
+			input.Reset(event.Data)
+			retained[i] = new(jsontext.Value)
+			if err := json.UnmarshalRead(&input, retained[i], jsonOptions); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	got := testing.AllocsPerRun(runs, func() {
+		input.Reset(data)
+		i := 0
+		for v, err := range DecodeStream[jsontext.Value](&input, 0) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained[i] = v
+			i++
+		}
+		if i != len(events) {
+			t.Fatalf("decoded %d events, want %d", i, len(events))
+		}
+	})
+	// Two SSE allocations per frame (including [DONE]) and five for setup. Allow five
+	// more per stream for pool noise under -race, less than one copy per payload.
+	if limit := baseline + float64(2*(len(events)+1)+5+5); got > limit {
+		t.Errorf("stream allocated %.0f objects, want at most %.0f (JSON alone: %.0f)", got, limit, baseline)
+	}
+	for i, event := range events {
+		if !bytes.Equal(*retained[i], event.Data) {
+			t.Errorf("retained payload %d changed after decoding later events", i)
+		}
 	}
 }
 

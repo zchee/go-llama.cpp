@@ -1,72 +1,73 @@
 # Benchmarks
 
-- Date: `2026-11-27 02:59:05 JST`
-- Commit: `284b291b492df973209d8df77ff06bc4df63b32c`
-- CPU: `Apple M3 Max` (`darwin/arm64`)
-- Go: `go version go1.27.4 darwin/arm64`
-- Command: `go test -run '^$' -bench . -benchmem -count=10 <pkg>` (each package run sequentially)
-- Summarized with: `benchstat`
+**The recorded chat stream misses the budget.** Decoding nine payloads takes 115 allocations, down from 124 on the base commit. Bare `encoding/json/v2.Unmarshal` into the same reusable `ChatCompletionChunk` takes 81. The overhead is **(115 − 81) / 9 = 3.78 allocations per event**; the target is at most 3, or 108 allocations per stream. The `[DONE]` frame is parsed but not yielded or counted as a payload.
 
-Note: Concurrent test runs on other worktrees loaded this machine while these benchmarks ran, so latency figures (`sec/op`) are indicative. Allocation counts (`B/op`, `allocs/op`) and event counts (`events/op`) are deterministic.
+- Run started (`date`): `2026-11-27 03:36:01 JST`
+- Base (`git rev-parse HEAD`): `ba3e27e21876d8010c02c1bf9f706f63d25dd99c`, with the decoder and fresh-pointer benchmark changes uncommitted.
+- Host: Apple M3 Max, `go version go1.27.4 darwin/arm64`.
+- Command: `go test -run '^$' -bench . -benchmem -count=10 <pkg>` for `.`, `./openai`, and `./anthropic`, one package at a time. Tables show benchstat medians; `KiB` means 1024 bytes. Other worktrees ran tests on the same machine, so timings are noisy. Allocation and event counts were identical across all ten samples.
 
-## Results
+## Recorded streams
 
-### Root package (`github.com/zchee/go-llama.cpp`)
-
-| Benchmark | sec/op | events/op | B/op | allocs/op |
+| Decoder | Yielded events | Base allocs/stream | New allocs/stream | Allocations/event, base → new |
 | --- | ---: | ---: | ---: | ---: |
-| `CompletionStreamDecode-16` | `25.92µ ± 2%` | `5.000 ± 0%` | `19.86Ki ± 0%` | `124.0 ± 0%` |
-| `PromptEncode/text-16` | `93.16n ± 101%` | — | `8.000 ± 0%` | `1.000 ± 0%` |
-| `PromptEncode/tokens-16` | `156.7n ± 57%` | — | `56.00 ± 0%` | `3.000 ± 0%` |
-| `PromptEncode/mixed-16` | `108.8n ± 12%` | — | `16.00 ± 0%` | `1.000 ± 0%` |
-| `PromptEncode/object-16` | `202.7n ± 2%` | — | `64.00 ± 0%` | `1.000 ± 0%` |
-| `PromptEncode/batch-16` | `104.3n ± 2%` | — | `16.00 ± 0%` | `1.000 ± 0%` |
-| `ClientNewRequest/get-16` | `770.4n ± 20%` | — | `1.570Ki ± 0%` | `16.00 ± 0%` |
-| `ClientNewRequest/post_json-16` | `2.064µ ± 2%` | — | `1.900Ki ± 0%` | `24.00 ± 0%` |
+| Native completion | 5 | 124 | 119 | 24.80 → 23.80 |
+| Single chat token chunk | 1 | 28 | 27 | 28.00 → 27.00 |
+| Whole chat completion | 9 | 124 | 115 | 13.78 → 12.78 |
+| Responses | 14 | 139 | 125 | 9.93 → 8.93 |
+| Messages | 13 | 101 | 88 | 7.77 → 6.77 |
 
-### OpenAI package (`github.com/zchee/go-llama.cpp/openai`)
+The original chat baseline reuses one destination. The stream must return a distinct pointer for each event so the caller can keep it. A second benchmark unmarshals the same nine payloads into fresh pointers: 90 allocations rather than 81. The decoder costs 25 extra allocations against that comparator (2.78/event), but **the 81-allocation benchmark remains the budget baseline**. For the single token chunk, the stream takes 27 allocations versus 17 for bare unmarshal; it pays the entire setup and terminator cost for one payload.
 
-| Benchmark | sec/op | events/op | B/op | allocs/op |
-| --- | ---: | ---: | ---: | ---: |
-| `ChatCompletionChunkUnmarshal-16` | `2.814µ ± 13%` | — | `656.0 ± 0%` | `17.00 ± 0%` |
-| `ChatCompletionChunkStream-16` | `3.975µ ± 9%` | `1.000 ± 0%` | `6.505Ki ± 0%` | `28.00 ± 0%` |
-| `ChatCompletionStreamDecode-16` | `24.18µ ± 2%` | `9.000 ± 0%` | `20.10Ki ± 0%` | `124.0 ± 0%` |
-| `ChatCompletionStreamUnmarshalBaseline-16` | `15.00µ ± 2%` | `9.000 ± 0%` | `3.534Ki ± 0%` | `81.00 ± 0%` |
-| `ResponsesStreamDecode-16` | `52.19µ ± 1%` | `14.00 ± 0%` | `22.77Ki ± 0%` | `139.0 ± 0%` |
-| `EmbeddingResponseDecode/float-16` | `45.39µ ± 11%` | — | `16.15Ki ± 0%` | `13.00 ± 0%` |
-| `EmbeddingResponseDecode/base64-16` | `3.032µ ± 4%` | — | `4.652Ki ± 0%` | `5.000 ± 0%` |
-| `ChatCompletionRequestWithToolsEncode-16` | `2.269µ ± 2%` | — | `744.0 ± 0%` | `9.000 ± 0%` |
+### What still allocates
 
-### Anthropic package (`github.com/zchee/go-llama.cpp/anthropic`)
+Base and final profiles used `-bench '^BenchmarkChatCompletionStreamDecode$' -benchtime=1000x -memprofilerate=1 -memprofile` on `./openai`, inspected with `go tool pprof -sample_index=alloc_objects -top -lines`. The two base `readStream` sites each accounted for 9,000 objects: `[]byte(ev.Data)` and `new(T)`. Only `new(T)` remains. `json.UnmarshalRead` uses a resettable `strings.Reader` for ordinary payloads; it still validates one complete JSON value. The event string is not exposed as mutable bytes.
 
-| Benchmark | sec/op | events/op | B/op | allocs/op |
-| --- | ---: | ---: | ---: | ---: |
-| `MessagesStreamDecode-16` | `11.76µ ± 15%` | `13.00 ± 0%` | `10.70Ki ± 0%` | `101.0 ± 0%` |
+| Source of overhead vs. bare unmarshal | Allocations per nine-event stream |
+| --- | ---: |
+| Fresh result pointers (`new(T)`) | 9 |
+| SSE scanner token strings and data builder buffers for the nine payloads | 18 |
+| Same SSE scanner and builder for `[DONE]` | 2 |
+| SSE parser, field parser, `bufio.Scanner` and its initial buffer | 4 |
+| Shared allocation for the stream-tail reader and JSON payload reader | 1 |
+| **Total** | **34** |
 
-## Stream Allocation Comparison vs. Baseline
+In `go-sse` v0.12.0, `internal/parser/parser.go:79` calls `Scanner.Text()` **once per framed event**, not once per line. `event.go:85,114` writes the payload and resets the builder for the next event. `ReadConfig` accepts a size limit but no parser or buffer; `Connection` uses the same internal parser and builder. The nine sets of scanner, builder and result allocations already consume the 27-object allowance before setup or `[DONE]`. Even a zero-copy string conversion would not remove those costs. No parser was replaced, and the limit and budget are unchanged.
 
-Target: decoding a chat stream through `llama.DecodeStream` costs at most `3` allocations per event more than bare `json.Unmarshal` (`encoding/json/v2`) of the same payload.
+## All benchmarks
 
-- **Measured result (missed target):**
-  - Whole recorded chat stream (`openai/testdata/chat_completions/stream.resp.sse`, 9 events):
-    - `ChatCompletionStreamDecode`: `124.0` allocs/op (`13.78` allocs/event)
-    - `ChatCompletionStreamUnmarshalBaseline`: `81.00` allocs/op (`9.00` allocs/event)
-    - Overhead: `+43.0` allocs/op = **`+4.78` extra allocs/event** (misses the `<= 3` extra allocs/event target by `+1.78` allocs/event).
-  - Single chat token chunk (event index 3 from `stream.resp.sse`):
-    - `ChatCompletionChunkStream`: `28.00` allocs/op
-    - `ChatCompletionChunkUnmarshal`: `17.00` allocs/op
-    - Overhead: **`+11.0` allocs/op** (includes per-stream setup and the `[DONE]` terminator frame).
+### Root package
 
-### Allocation Sources (`-memprofile`)
+| Benchmark | Time/op | Bytes/op | Allocs/op |
+| --- | ---: | ---: | ---: |
+| `RequestWithoutExtra/checkRequestExtra` | 154.2 ns ± 31% | 0 | 0 |
+| `RequestWithoutExtra/marshal` | 850.8 ns ± 4% | 128 | 4 |
+| `RequestWithoutExtra/encodeBody` | 1.035 µs ± 89% | 128 | 4 |
+| `CompletionStreamDecode` | 25.76 µs ± 4% | 16.14 KiB | 119 |
+| `PromptEncode/text` | 76.83 ns ± 2% | 8 | 1 |
+| `PromptEncode/tokens` | 150.5 ns ± 2% | 56 | 3 |
+| `PromptEncode/mixed` | 102.5 ns ± 2% | 16 | 1 |
+| `PromptEncode/object` | 270.1 ns ± 2% | 128 | 2 |
+| `PromptEncode/batch` | 103.4 ns ± 2% | 16 | 1 |
+| `ClientNewRequest/get` | 859.0 ns ± 12% | 1.570 KiB | 16 |
+| `ClientNewRequest/post_json` | 2.265 µs ± 3% | 1.900 KiB | 24 |
 
-Profiling `BenchmarkChatCompletionStreamDecode` with `go test -memprofile` (`47,184` iterations, `5,414,312` total allocated objects; `go tool pprof -alloc_objects`) attributes the stream-layer overhead to:
+### OpenAI package
 
-1. **Per-event allocations (4 allocs/event):**
-   - `github.com/tmaxmax/go-sse/internal/parser.(*Parser).Next` (`parser.go:79`): `r.fieldScanner.Reset(r.inputScanner.Text())` allocates a `string` via `bufio.(*Scanner).Text` for each line.
-   - `github.com/tmaxmax/go-sse.read.func1` (`event.go:85` + `event.go:114`): `sb.Reset()` discards the `strings.Builder` buffer after each event, so `sb.WriteString(f.Value)` allocates a fresh buffer per event.
-   - `github.com/zchee/go-llama.cpp.readStream` (`stream.go:119`): `data := []byte(ev.Data)` allocates a `[]byte` copy of the event string for `json.Unmarshal`.
-   - `github.com/zchee/go-llama.cpp.readStream` (`stream.go:124`): `v := new(T)` allocates each yielded `*openai.ChatCompletionChunk` on the heap (whereas the bare `json.Unmarshal` baseline unmarshals into a stack-local struct).
-2. **Per-stream fixed and terminator allocations (~7 allocs/stream, ~0.78 allocs/event over 9 events):**
-   - `stream.go:103`: `tr := &tailReader{r: r}` (1 alloc/stream).
-   - `github.com/tmaxmax/go-sse/internal/parser.New`: `bufio.NewScanner`, initial `bufio.Scanner` buffer in `Scan()`, and `parser.NewFieldParser` (3 allocs/stream).
-   - `[DONE]` terminator event: `bufio.(*Scanner).Text` (`parser.go:79`) and `strings.(*Builder).WriteString` (`event.go:85`) before `ev.Data == streamDone` returns (2 allocs/stream, plus minor `runtime` / closure overhead).
+| Benchmark | Time/op | Bytes/op | Allocs/op |
+| --- | ---: | ---: | ---: |
+| `ChatCompletionChunkUnmarshal` | 2.364 µs ± 4% | 656 | 17 |
+| `ChatCompletionChunkStream` | 4.707 µs ± 32% | 6.067 KiB | 27 |
+| `ChatCompletionStreamDecode` | 23.49 µs ± 3% | 16.56 KiB | 115 |
+| `ChatCompletionStreamUnmarshalBaseline` | 14.96 µs ± 2% | 3.534 KiB | 81 |
+| `ChatCompletionStreamUnmarshalFreshPointerBaseline` | 15.48 µs ± 6% | 4.942 KiB | 90 |
+| `ResponsesStreamDecode` | 50.21 µs ± 3% | 18.26 KiB | 125 |
+| `EmbeddingResponseDecode/float` | 43.73 µs ± 1% | 16.15 KiB | 13 |
+| `EmbeddingResponseDecode/base64` | 2.950 µs ± 4% | 4.652 KiB | 5 |
+| `ChatCompletionRequestWithToolsEncode` | 2.242 µs ± 1% | 744 | 9 |
+
+### Anthropic package
+
+| Benchmark | Time/op | Bytes/op | Allocs/op |
+| --- | ---: | ---: | ---: |
+| `MessagesStreamDecode` | 11.82 µs ± 22% | 9.419 KiB | 88 |

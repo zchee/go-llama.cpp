@@ -131,6 +131,24 @@ func BenchmarkChatCompletionStreamUnmarshalBaseline(b *testing.B) {
 	b.ReportMetric(float64(len(events)), "events/op")
 }
 
+func BenchmarkChatCompletionStreamUnmarshalFreshPointerBaseline(b *testing.B) {
+	data := jsontest.ReadFile(b, "testdata/chat_completions/stream.resp.sse")
+	events := jsontest.EventData(b, data)
+	var last *openai.ChatCompletionChunk
+	for b.Loop() {
+		for _, event := range events {
+			last = new(openai.ChatCompletionChunk)
+			if err := json.Unmarshal(event.Data, last, json.Deterministic(true)); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	if last == nil || last.ID == "" {
+		b.Fatal("empty final chunk")
+	}
+	b.ReportMetric(float64(len(events)), "events/op")
+}
+
 func BenchmarkResponsesStreamDecode(b *testing.B) {
 	data := jsontest.ReadFile(b, "testdata/responses/stream.resp.sse")
 	wantEvents := len(jsontest.EventData(b, data))

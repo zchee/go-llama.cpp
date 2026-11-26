@@ -146,7 +146,7 @@ func endpointStreamEnd(path string) streamEnd {
 	}
 }
 
-func (e *streamEnd) observe(event string, value any, data []byte) error {
+func (e *streamEnd) observe(event string, value any, data string) error {
 	if e.marker != nativeFinal {
 		e.lastFinal = event == e.marker
 		return nil
@@ -160,7 +160,7 @@ func (e *streamEnd) observe(event string, value any, data []byte) error {
 			Stop  *bool `json:"stop"`
 			Index *int  `json:"index"`
 		}
-		if err := json.Unmarshal(data, &frame); err != nil {
+		if err := json.Unmarshal([]byte(data), &frame); err != nil {
 			return err
 		}
 		stop, index = frame.Stop, frame.Index
@@ -219,8 +219,13 @@ func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header
 	}
 	return func(yield func(*T, error) bool) {
 		end := rule
-		tr := &tailReader{r: r}
-		for ev, err := range sse.Read(tr, &sse.ReadConfig{MaxEventSize: maxEventSize}) {
+		// Keep both readers in one allocation for the lifetime of this stream.
+		var readers struct {
+			stream  tailReader
+			payload strings.Reader
+		}
+		readers.stream.r = r
+		for ev, err := range sse.Read(&readers.stream, &sse.ReadConfig{MaxEventSize: maxEventSize}) {
 			if err != nil {
 				if missing := end.missing(); errors.Is(err, io.ErrUnexpectedEOF) && missing != nil {
 					yield(nil, fmt.Errorf("%w: %w", missing, err))
@@ -242,13 +247,13 @@ func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header
 				}
 				return
 			}
-			data := []byte(ev.Data)
-			if apiErr := inlineError(data, status, header); apiErr != nil {
+			if apiErr := inlineError(ev.Data, status, header); apiErr != nil {
 				yield(nil, apiErr)
 				return
 			}
 			v := new(T)
-			if err := json.Unmarshal(data, v, jsonOptions); err != nil {
+			readers.payload.Reset(ev.Data)
+			if err := json.UnmarshalRead(&readers.payload, v, jsonOptions); err != nil {
 				yield(nil, fmt.Errorf("llama: decoding event: %w", err))
 				return
 			}
@@ -257,7 +262,7 @@ func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header
 				// (server_task_result_cmpl_partial::to_json, server-task.cpp:1031-1033): a result
 				// began and its final frame is still owed.
 				end.lastFinal = false
-			} else if err := end.observe(ev.Type, v, data); err != nil {
+			} else if err := end.observe(ev.Type, v, ev.Data); err != nil {
 				yield(nil, fmt.Errorf("llama: decoding native stream fields: %w", err))
 				return
 			}
@@ -265,7 +270,7 @@ func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header
 				return
 			}
 		}
-		if tr.truncated() {
+		if readers.stream.truncated() {
 			yield(nil, fmt.Errorf("%w: stream ended inside an event: %w", ErrIncompleteStream, io.ErrUnexpectedEOF))
 		} else if err := end.missing(); err != nil {
 			yield(nil, err)
@@ -282,7 +287,7 @@ func eventError(data string, status int, header http.Header) *APIError {
 	}
 	// Some producers wrap the object in {"error": ...} even on a named error event.
 	if obj.Type == "" && obj.Message == "" {
-		if apiErr := inlineError(raw, status, header); apiErr != nil {
+		if apiErr := inlineError(data, status, header); apiErr != nil {
 			return apiErr
 		}
 	}
@@ -295,10 +300,11 @@ type errorProbe struct {
 }
 
 // inlineError returns the error carried by a data-only event shaped {"error": {...}}, or nil for any other event.
-func inlineError(data []byte, status int, header http.Header) *APIError {
-	if !bytes.Contains(data, []byte(`"error"`)) {
+func inlineError(payload string, status int, header http.Header) *APIError {
+	if !strings.Contains(payload, `"error"`) {
 		return nil
 	}
+	data := []byte(payload)
 	var probe errorProbe
 	if err := json.Unmarshal(data, &probe); err != nil || probe.Error.Kind() != '{' {
 		return nil
