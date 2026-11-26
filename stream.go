@@ -320,7 +320,6 @@ func inlineError(payload string, status int, header http.Header) *APIError {
 // tailReader remembers the last bytes read so that the end of a stream can be checked for a complete event.
 type tailReader struct {
 	r    io.Reader
-	n    int64
 	tail [4]byte
 	tl   int
 }
@@ -328,7 +327,6 @@ type tailReader struct {
 func (t *tailReader) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
 	if n > 0 {
-		t.n += int64(n)
 		b := p[:n]
 		if len(b) >= len(t.tail) {
 			copy(t.tail[:], b[len(b)-len(t.tail):])
@@ -343,7 +341,7 @@ func (t *tailReader) Read(p []byte) (int, error) {
 
 // truncated reports whether a non-empty stream ended without the blank line that dispatches an event.
 func (t *tailReader) truncated() bool {
-	if t.n == 0 {
+	if t.tl == 0 {
 		return false
 	}
 	b := t.tail[:t.tl]
