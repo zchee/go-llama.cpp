@@ -69,8 +69,8 @@ func WithHTTPClient(hc *http.Client) ClientOption {
 // base URL passed to New still decides the scheme, the Host header and the API prefix, so "http://localhost" is
 // the usual choice.
 //
-// Combined with WithHTTPClient, the client's Transport must be nil or an *http.Transport; it is cloned and its
-// dialer replaced.
+// WithUnixSocket clones the HTTP client's transport (http.DefaultTransport if none is set) and replaces its
+// dialers. The effective transport must be an *http.Transport.
 func WithUnixSocket(path string) ClientOption {
 	return func(c *clientConfig) { c.unixSocket = path }
 }

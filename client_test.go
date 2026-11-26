@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,24 @@ func TestNewOptions(t *testing.T) {
 	}
 }
 
+// TestNewWrappedDefaultTransport replaces a process global and must not run in parallel.
+func TestNewWrappedDefaultTransport(t *testing.T) {
+	original := http.DefaultTransport
+	wrapper := &struct{ http.RoundTripper }{original}
+	http.DefaultTransport = wrapper
+	t.Cleanup(func() { http.DefaultTransport = original })
+	c, err := New("http://localhost")
+	if err != nil || c.HTTPClient().Transport != wrapper {
+		t.Fatalf("wrapped default transport was not retained: %v", err)
+	}
+	for _, hc := range []*http.Client{nil, {}} {
+		_, err := New("http://localhost", WithHTTPClient(hc), WithUnixSocket("server.sock"))
+		if err == nil || !strings.Contains(err.Error(), "needs an *http.Transport") {
+			t.Errorf("WithUnixSocket error = %v, want an unsupported transport error", err)
+		}
+	}
+}
+
 func TestWithUnixSocket(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "absent.sock")
 	tests := map[string]struct {
@@ -125,8 +144,12 @@ func TestWithUnixSocket(t *testing.T) {
 	}{
 		"success: default client":                   {},
 		"success: custom client with nil transport": {hc: &http.Client{Timeout: time.Second}},
-		"success: custom *http.Transport":           {hc: &http.Client{Transport: &http.Transport{MaxIdleConns: 3}}},
-		"error: transport of another type":          {hc: &http.Client{Transport: roundTripperFunc(nil)}, wantErr: "needs an *http.Transport"},
+		"success: custom TLS dialers": {hc: &http.Client{Transport: &http.Transport{
+			DialTLS:        new(net.Dialer).Dial, //nolint:staticcheck // Check caller-supplied legacy dialers too.
+			DialTLSContext: new(net.Dialer).DialContext,
+		}}},
+		"success: custom *http.Transport":  {hc: &http.Client{Transport: &http.Transport{MaxIdleConns: 3}}},
+		"error: transport of another type": {hc: &http.Client{Transport: roundTripperFunc(nil)}, wantErr: "needs an *http.Transport"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -153,6 +176,9 @@ func TestWithUnixSocket(t *testing.T) {
 			}
 			if tt.hc != nil && c.HTTPClient().Timeout != tt.hc.Timeout {
 				t.Errorf("Timeout of the caller's client was not kept")
+			}
+			if tr.DialTLS != nil || tr.DialTLSContext != nil { //nolint:staticcheck // https must not reach a legacy dialer either.
+				t.Error("TLS dialer can bypass the unix socket")
 			}
 			// Dialing any TCP address must go to the socket path instead.
 			_, err = tr.DialContext(t.Context(), "tcp", "example.com:80")

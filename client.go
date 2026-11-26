@@ -127,25 +127,29 @@ func buildHTTPClient(hc *http.Client, unixSocket string) (*http.Client, error) {
 	if hc != nil {
 		out = *hc
 	} else {
-		out.Transport = http.DefaultTransport.(*http.Transport).Clone()
+		out.Transport = http.DefaultTransport
 	}
 
 	if unixSocket != "" {
-		var tr *http.Transport
-		switch rt := out.Transport.(type) {
-		case nil:
-			tr = http.DefaultTransport.(*http.Transport).Clone()
-		case *http.Transport:
-			tr = rt.Clone()
-		default:
-			return nil, fmt.Errorf("llama: WithUnixSocket needs an *http.Transport, the HTTP client has %T", out.Transport)
+		rt := out.Transport
+		if rt == nil {
+			rt = http.DefaultTransport
 		}
+		tr, ok := rt.(*http.Transport)
+		if !ok || tr == nil {
+			return nil, fmt.Errorf("llama: WithUnixSocket needs an *http.Transport, the HTTP client has %T", rt)
+		}
+		tr = tr.Clone()
+		tr.DialTLS = nil //nolint:staticcheck // net/http still uses this legacy dialer when DialTLSContext is nil.
+		tr.DialTLSContext = nil
 		var d net.Dialer
 		tr.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return d.DialContext(ctx, "unix", unixSocket)
 		}
 		tr.Proxy = nil
 		out.Transport = tr
+	} else if tr, ok := out.Transport.(*http.Transport); hc == nil && ok && tr != nil {
+		out.Transport = tr.Clone()
 	}
 
 	out.CheckRedirect = keepCredentialsOnOrigin(out.CheckRedirect)
