@@ -25,6 +25,24 @@ import (
 	llama "github.com/zchee/go-llama.cpp"
 )
 
+// PayloadKind is the JSON shape of a Payload.
+type PayloadKind int
+
+const (
+	// PayloadKindNone is an unset payload.
+	PayloadKindNone PayloadKind = iota
+	// PayloadKindText is a JSON string.
+	PayloadKindText
+	// PayloadKindNull is an explicit JSON null.
+	PayloadKindNull
+	// PayloadKindObject is a JSON object.
+	PayloadKindObject
+	// PayloadKindArray is a JSON array.
+	PayloadKindArray
+	// PayloadKindRaw is a JSON number or boolean.
+	PayloadKindRaw
+)
+
 // Payload is a state, instruction or description. Its zero value is omitted from optional fields;
 // Null sends an explicit JSON null. Support for null, numbers and booleans depends on the model.
 type Payload struct {
@@ -59,6 +77,33 @@ func NewPayload(v any) (Payload, error) {
 	err = json.Unmarshal(data, &p)
 	return p, err
 }
+
+// Kind returns the shape of the payload.
+func (p Payload) Kind() PayloadKind {
+	switch p.kind {
+	case 0:
+		return PayloadKindNone
+	case '"':
+		return PayloadKindText
+	case 'n':
+		return PayloadKindNull
+	case '{':
+		return PayloadKindObject
+	case '[':
+		return PayloadKindArray
+	default:
+		return PayloadKindRaw
+	}
+}
+
+// Text returns the string and whether the payload is text.
+func (p Payload) Text() (string, bool) { return p.text, p.kind == '"' }
+
+// IsNull reports whether the payload is explicitly null.
+func (p Payload) IsNull() bool { return p.kind == 'n' }
+
+// Raw returns a copy of the encoded object, array, number or boolean, or nil for any other kind.
+func (p Payload) Raw() jsontext.Value { return p.raw.Clone() }
 
 // IsZero reports whether the payload is unset, as distinct from an explicit null.
 func (p Payload) IsZero() bool { return p.kind == 0 }

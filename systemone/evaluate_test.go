@@ -140,6 +140,80 @@ func ExampleClient_Evaluate() {
 	fmt.Println(res.Answers["delivered"].Value.(systemone.NoulAnswer).Noul)
 }
 
+func TestPayloadAccessors(t *testing.T) {
+	tests := map[string]struct {
+		wire  string
+		value any
+		kind  systemone.PayloadKind
+	}{
+		"success: unset":      {},
+		"success: text":       {`"hello"`, "hello", systemone.PayloadKindText},
+		"success: empty text": {`""`, "", systemone.PayloadKindText},
+		"success: null":       {`null`, nil, systemone.PayloadKindNull},
+		"success: array":      {`[1]`, []int{1}, systemone.PayloadKindArray},
+		"success: object":     {`{"x":1}`, map[string]int{"x": 1}, systemone.PayloadKindObject},
+		"success: number":     {`42`, 42, systemone.PayloadKindRaw},
+		"success: true":       {`true`, true, systemone.PayloadKindRaw},
+		"success: false":      {`false`, false, systemone.PayloadKindRaw},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			values := map[string]systemone.Payload{}
+			switch tt.kind {
+			case systemone.PayloadKindNone:
+				values["zero value"] = systemone.Payload{}
+			case systemone.PayloadKindNull:
+				values["Null"] = systemone.Null()
+			case systemone.PayloadKindText:
+				values["Text"] = systemone.Text(tt.value.(string))
+			}
+			if tt.wire != "" {
+				var p systemone.Payload
+				if err := json.Unmarshal([]byte(tt.wire), &p); err != nil {
+					t.Fatal(err)
+				}
+				values["Unmarshal"] = p
+				raw, err := systemone.Raw(jsontext.Value(tt.wire))
+				if err != nil {
+					t.Fatal(err)
+				}
+				values["Raw"] = raw
+				v, err := systemone.NewPayload(tt.value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				values["NewPayload"] = v
+			}
+			for source, p := range values {
+				t.Run(source, func(t *testing.T) {
+					if p.Kind() != tt.kind || p.IsZero() != (tt.kind == systemone.PayloadKindNone) || p.IsNull() != (tt.kind == systemone.PayloadKindNull) {
+						t.Errorf("kind=%v, zero=%t, null=%t, want kind %v", p.Kind(), p.IsZero(), p.IsNull(), tt.kind)
+					}
+					wantText, wantOK := tt.value.(string)
+					if got, ok := p.Text(); got != wantText || ok != wantOK {
+						t.Errorf("Text() = %q, %t; want %q, %t", got, ok, wantText, wantOK)
+					}
+					raw := p.Raw()
+					switch tt.kind {
+					case systemone.PayloadKindArray, systemone.PayloadKindObject, systemone.PayloadKindRaw:
+						if string(raw) != tt.wire {
+							t.Fatalf("Raw() = %q, want %q", raw, tt.wire)
+						}
+						raw[0] = '!'
+						if string(p.Raw()) != tt.wire {
+							t.Fatal("mutating Raw() changed payload")
+						}
+					default:
+						if raw != nil {
+							t.Errorf("Raw() = %q, want nil", raw)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestSystemonePayloadNumberAndBoolean(t *testing.T) {
 	tests := map[string]struct {
 		raw     string
