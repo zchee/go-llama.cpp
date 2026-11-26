@@ -133,7 +133,7 @@ func TestSDKResponses(t *testing.T) {
 			svc := responses.NewResponseService(x.openAIOptions()...)
 			const prompt = "Once upon a time"
 			params := responses.ResponseNewParams{Model: "stories", Input: responses.ResponseNewParamsInputUnion{OfString: sdk.String(prompt)}, MaxOutputTokens: sdk.Int(4), Temperature: sdk.Float(0)}
-			local := &openai.ResponsesRequest{Model: "stories", Input: openai.ResponseInput{Text: new(prompt)}, MaxOutputTokens: new(4), Temperature: new(0.0)}
+			local := &openai.ResponsesRequest{Model: "stories", Input: openai.ResponseInputText(prompt), MaxOutputTokens: new(4), Temperature: new(0.0)}
 			if tt.stream {
 				local.Stream = new(true)
 				x.checkStream[openai.ResponseEvent](t, svc.NewStreaming(t.Context(), params))

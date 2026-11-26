@@ -24,7 +24,7 @@ import (
 
 var _ = registerContracts(map[string]contractCase{
 	"POST /v1/responses": {server: presetStories260K, call: func(t *testing.T, c *llama.Client) error {
-		res, err := openai.NewClient(c).Responses(t.Context(), &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("Once upon a time")}, MaxOutputTokens: new(4)})
+		res, err := openai.NewClient(c).Responses(t.Context(), &openai.ResponsesRequest{Input: openai.ResponseInputText("Once upon a time"), MaxOutputTokens: new(4)})
 		if err != nil {
 			return err
 		}
@@ -34,7 +34,7 @@ var _ = registerContracts(map[string]contractCase{
 		return nil
 	}},
 	"POST /v1/responses/input_tokens": {server: presetStories260K, call: func(t *testing.T, c *llama.Client) error {
-		res, err := openai.NewClient(c).ResponsesInputTokens(t.Context(), &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("Once upon a time")}})
+		res, err := openai.NewClient(c).ResponsesInputTokens(t.Context(), &openai.ResponsesRequest{Input: openai.ResponseInputText("Once upon a time")})
 		if err != nil {
 			return err
 		}

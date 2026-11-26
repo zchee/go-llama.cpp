@@ -72,7 +72,7 @@ func TestStreamEndToEnd(t *testing.T) {
 	})
 	t.Run("openai responses", func(t *testing.T) {
 		c, _ := presetStories260K.server(t).Client(t)
-		req := &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("Once upon a time")}, MaxOutputTokens: new(4)}
+		req := &openai.ResponsesRequest{Input: openai.ResponseInputText("Once upon a time"), MaxOutputTokens: new(4)}
 		drainStream(t, openai.NewClient(c).ResponsesStream(t.Context(), req))
 	})
 	t.Run("anthropic messages", func(t *testing.T) {

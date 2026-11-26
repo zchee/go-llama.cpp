@@ -28,7 +28,7 @@ import (
 func TestResponsesStream(t *testing.T) {
 	c, _ := presetStories260K.server(t).Client(t)
 	oc := openai.NewClient(c)
-	req := &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("Once upon a time")}, MaxOutputTokens: new(4), Temperature: new(0.0), Stream: new(false), ExtraParams: &openai.ResponseExtraParams{Extra: map[string]jsontext.Value{"stream": jsontext.Value("false")}}}
+	req := &openai.ResponsesRequest{Input: openai.ResponseInputText("Once upon a time"), MaxOutputTokens: new(4), Temperature: new(0.0), Stream: new(false), ExtraParams: &openai.ResponseExtraParams{Extra: map[string]jsontext.Value{"stream": jsontext.Value("false")}}}
 	var first, last string
 	var delta strings.Builder
 	var completed *openai.Response
@@ -55,12 +55,12 @@ func TestResponsesStream(t *testing.T) {
 		t.Fatalf("unexpected streamed response: first %q, last %q, final %+v", first, last, completed)
 	}
 	msg, ok := completed.Output[0].Value.(*openai.ResponseMessage)
-	if !ok || len(msg.Content.List) != 1 {
+	if !ok || len(msg.Content.Parts()) != 1 {
 		t.Fatalf("unexpected completed item: %+v", completed.Output[0])
 	}
-	part, ok := msg.Content.List[0].Value.(*openai.ResponseTextPart)
+	part, ok := msg.Content.Parts()[0].Value.(*openai.ResponseTextPart)
 	if !ok {
-		t.Fatalf("unexpected completed part: %+v", msg.Content.List[0])
+		t.Fatalf("unexpected completed part: %+v", msg.Content.Parts()[0])
 	}
 	if got := delta.String(); got != part.Text {
 		t.Errorf("streamed text = %q, completed text = %q", got, part.Text)
@@ -79,7 +79,7 @@ func TestResponsesStream(t *testing.T) {
 
 func TestResponsesAliases(t *testing.T) {
 	c, _ := presetStories260K.server(t).Client(t)
-	req := &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("Once upon a time")}, MaxOutputTokens: new(4)}
+	req := &openai.ResponsesRequest{Input: openai.ResponseInputText("Once upon a time"), MaxOutputTokens: new(4)}
 	count, err := llama.Call[openai.InputTokensResponse](t.Context(), c, http.MethodPost, "/responses/input_tokens", req)
 	if err != nil {
 		t.Fatal(err)
@@ -107,14 +107,14 @@ func TestResponsesReasoningHistory(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			req := &openai.ResponsesRequest{
-				Input: openai.ResponseInput{List: []openai.ResponseItem{
-					{Value: &openai.ResponseMessage{Role: "user", Content: openai.ResponseContent{Text: new("Say hello.")}}},
-					{Value: &openai.ResponseReasoningItem{Type: "reasoning", Summary: tt.summary, Content: []openai.ResponsePart{
+				Input: openai.ResponseInputItems(
+					openai.ResponseItem{Value: &openai.ResponseMessage{Role: "user", Content: openai.ResponseContentText("Say hello.")}},
+					openai.ResponseItem{Value: &openai.ResponseReasoningItem{Type: "reasoning", Summary: tt.summary, Content: []openai.ResponsePart{
 						{Value: &openai.ResponseTextPart{Type: "reasoning_text", Text: "Recall the greeting."}},
 					}}},
-					{Value: &openai.ResponseMessage{Type: "message", Role: "assistant", Content: openai.ResponseContent{Text: new("Hello!")}}},
-					{Value: &openai.ResponseMessage{Role: "user", Content: openai.ResponseContent{Text: new("Say it again.")}}},
-				}},
+					openai.ResponseItem{Value: &openai.ResponseMessage{Type: "message", Role: "assistant", Content: openai.ResponseContentText("Hello!")}},
+					openai.ResponseItem{Value: &openai.ResponseMessage{Role: "user", Content: openai.ResponseContentText("Say it again.")}},
+				),
 				MaxOutputTokens: new(4),
 			}
 			got, err := client.Responses(t.Context(), req)
@@ -131,7 +131,7 @@ func TestResponsesReasoningHistory(t *testing.T) {
 func TestResponsesRejectPreviousID(t *testing.T) {
 	c, _ := presetStories260K.server(t).Client(t)
 	oc := openai.NewClient(c)
-	req := &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("hello")}, Extra: map[string]jsontext.Value{"previous_response_id": jsontext.Value(`"resp_missing"`)}}
+	req := &openai.ResponsesRequest{Input: openai.ResponseInputText("hello"), Extra: map[string]jsontext.Value{"previous_response_id": jsontext.Value(`"resp_missing"`)}}
 	tests := map[string]struct{ call func() error }{
 		"error: completion cannot resolve previous response": {func() error { _, err := oc.Responses(t.Context(), req); return err }},
 		"error: count cannot resolve previous response":      {func() error { _, err := oc.ResponsesInputTokens(t.Context(), req); return err }},

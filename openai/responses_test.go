@@ -171,6 +171,57 @@ func TestResponsesUnknownKinds(t *testing.T) {
 	}
 }
 
+func TestResponsesInputAndContent(t *testing.T) {
+	tests := map[string]struct {
+		input      openai.ResponseInput
+		content    openai.ResponseContent
+		wire, text string
+		isText     bool
+	}{
+		"error: unset":             {},
+		"success: empty text":      {input: openai.ResponseInputText(""), content: openai.ResponseContentText(""), wire: `""`, isText: true},
+		"success: text":            {input: openai.ResponseInputText("hi"), content: openai.ResponseContentText("hi"), wire: `"hi"`, text: "hi", isText: true},
+		"success: empty array":     {input: openai.ResponseInputItems(), content: openai.ResponseContentParts(), wire: `[]`},
+		"success: populated array": {input: openai.ResponseInputItems(openai.ResponseItem{Value: &openai.ResponseUnknown{Type: "future"}}), content: openai.ResponseContentParts(openai.ResponsePart{Value: &openai.ResponseUnknown{Type: "future"}}), wire: `[{"type":"future"}]`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			check := func(label string, v any, zero, hasList bool, text string, isText bool) {
+				t.Helper()
+				if zero != (tt.wire == "") || hasList != (!tt.isText && tt.wire != "") || text != tt.text || isText != tt.isText {
+					t.Errorf("%s: zero=%t, list=%t, Text()=(%q, %t) for %q", label, zero, hasList, text, isText, tt.wire)
+				}
+				got, err := json.Marshal(v)
+				if tt.wire == "" {
+					if err == nil {
+						t.Errorf("%s: encoded unset value: %s", label, got)
+					}
+				} else if err != nil || string(got) != tt.wire {
+					t.Errorf("%s: marshal = %s, %v; want %s", label, got, err, tt.wire)
+				}
+			}
+			checkBoth := func(input openai.ResponseInput, content openai.ResponseContent) {
+				text, ok := input.Text()
+				check("input", input, input.IsZero(), input.Items() != nil, text, ok)
+				text, ok = content.Text()
+				check("content", content, content.IsZero(), content.Parts() != nil, text, ok)
+			}
+			checkBoth(tt.input, tt.content)
+			if tt.wire != "" {
+				var input openai.ResponseInput
+				var content openai.ResponseContent
+				if err := json.Unmarshal([]byte(tt.wire), &input); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal([]byte(tt.wire), &content); err != nil {
+					t.Fatal(err)
+				}
+				checkBoth(input, content)
+			}
+		})
+	}
+}
+
 func TestResponsesNewRequest(t *testing.T) {
 	c, err := llama.New("http://127.0.0.1:8080/prefix")
 	if err != nil {
@@ -180,8 +231,8 @@ func TestResponsesNewRequest(t *testing.T) {
 		path, fixture string
 		body          openai.ResponsesRequest
 	}{
-		"success: create with explicit zero temperature": {path: "/v1/responses", fixture: "responses/basic", body: openai.ResponsesRequest{Model: "responses-test", Input: openai.ResponseInput{Text: new("Once upon a time")}, Instructions: new("Write briefly."), MaxOutputTokens: new(5), Temperature: new(0.0), ExtraParams: &openai.ResponseExtraParams{Seed: new(int64(42))}}},
-		"success: count without generating":              {path: "/v1/responses/input_tokens", fixture: "responses_input_tokens/basic", body: openai.ResponsesRequest{Model: "tinyllama-2", Input: openai.ResponseInput{Text: new("Hello there")}}},
+		"success: create with explicit zero temperature": {path: "/v1/responses", fixture: "responses/basic", body: openai.ResponsesRequest{Model: "responses-test", Input: openai.ResponseInputText("Once upon a time"), Instructions: new("Write briefly."), MaxOutputTokens: new(5), Temperature: new(0.0), ExtraParams: &openai.ResponseExtraParams{Seed: new(int64(42))}}},
+		"success: count without generating":              {path: "/v1/responses/input_tokens", fixture: "responses_input_tokens/basic", body: openai.ResponsesRequest{Model: "tinyllama-2", Input: openai.ResponseInputText("Hello there")}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -241,13 +292,13 @@ func ExampleClient_Responses() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	r, err := openai.NewClient(c).Responses(context.Background(), &openai.ResponsesRequest{Model: "stories", Input: openai.ResponseInput{Text: new("How does a sundial work?")}})
+	r, err := openai.NewClient(c).Responses(context.Background(), &openai.ResponsesRequest{Model: "stories", Input: openai.ResponseInputText("How does a sundial work?")})
 	if err != nil {
 		log.Fatal(err)
 	}
 	for _, item := range r.Output {
 		if msg, ok := item.Value.(*openai.ResponseMessage); ok {
-			for _, part := range msg.Content.List {
+			for _, part := range msg.Content.Parts() {
 				if text, ok := part.Value.(*openai.ResponseTextPart); ok {
 					fmt.Print(text.Text)
 				}
@@ -278,7 +329,7 @@ func responsesFuzz[T any](f *testing.F, opts ...gocmp.Option) {
 			}
 			return string(b)
 		})
-		if diff := gocmp.Diff(first, second, compactRaw, gocmp.Options(opts)); diff != "" {
+		if diff := gocmp.Diff(first, second, gocmp.AllowUnexported(openai.ResponseInput{}, openai.ResponseContent{}), compactRaw, gocmp.Options(opts)); diff != "" {
 			t.Fatalf("decoded values changed (-first +second):\n%s", diff)
 		}
 	})

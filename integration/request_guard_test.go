@@ -64,7 +64,7 @@ func TestEndpointExtra(t *testing.T) {
 		return r == nil, err
 	}
 	responses := func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
-		r, err := openai.NewClient(c).Responses(ctx, &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("Once")}, Extra: e})
+		r, err := openai.NewClient(c).Responses(ctx, &openai.ResponsesRequest{Input: openai.ResponseInputText("Once"), Extra: e})
 		return r == nil, err
 	}
 	messages := func(ctx context.Context, c *llama.Client, e extra) (bool, error) {

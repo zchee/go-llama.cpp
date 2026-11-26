@@ -18,47 +18,120 @@ import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
+	"slices"
 )
 
-// ResponseInput is a string prompt or an ordered list of conversation items. Set exactly one field.
-type ResponseInput = responsesTextOrList[ResponseItem]
-
-// ResponseContent is a string or an ordered list of message or tool-output parts. Set exactly one field.
-type ResponseContent = responsesTextOrList[ResponsePart]
-
-type responsesTextOrList[T any] struct {
-	Text *string
-	List []T
+// ResponseInput is a string prompt or an ordered list of conversation items.
+// Construct it with ResponseInputText or ResponseInputItems.
+type ResponseInput struct {
+	text  *string
+	items []ResponseItem
 }
+
+// ResponseInputText returns a string prompt, including an empty string.
+func ResponseInputText(s string) ResponseInput { return ResponseInput{text: &s} }
+
+// ResponseInputItems returns a conversation encoded as an array, including an empty one.
+func ResponseInputItems(items ...ResponseItem) ResponseInput {
+	if items == nil {
+		items = []ResponseItem{}
+	}
+	return ResponseInput{items: slices.Clone(items)}
+}
+
+// Text returns the prompt and whether the input is a string.
+func (i ResponseInput) Text() (string, bool) {
+	if i.text == nil {
+		return "", false
+	}
+	return *i.text, true
+}
+
+// Items returns the conversation items, or nil if the input is not an array.
+func (i ResponseInput) Items() []ResponseItem { return i.items }
+
+// IsZero reports whether the input is unset.
+func (i ResponseInput) IsZero() bool { return i.text == nil && i.items == nil }
 
 // MarshalJSONTo writes the selected string or array.
-func (v responsesTextOrList[T]) MarshalJSONTo(enc *jsontext.Encoder) error {
-	switch {
-	case v.Text != nil && v.List == nil:
-		return json.MarshalEncode(enc, *v.Text)
-	case v.Text == nil && v.List != nil:
-		return json.MarshalEncode(enc, v.List)
-	default:
-		return errors.New("expected exactly one of Text or List")
-	}
+func (i ResponseInput) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return writeResponseTextOrList(enc, i.text, i.items)
 }
 
-// UnmarshalJSONFrom reads a string or an array without changing its form.
-func (v *responsesTextOrList[T]) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	var next responsesTextOrList[T]
+// UnmarshalJSONFrom reads a string or an array of conversation items.
+func (i *ResponseInput) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	return readResponseTextOrList(dec, &i.text, &i.items)
+}
+
+// ResponseContent is a string or an ordered list of message or tool-output parts.
+// Construct it with ResponseContentText or ResponseContentParts.
+type ResponseContent struct {
+	text  *string
+	parts []ResponsePart
+}
+
+// ResponseContentText returns string content, including an empty string.
+func ResponseContentText(s string) ResponseContent { return ResponseContent{text: &s} }
+
+// ResponseContentParts returns content encoded as an array, including an empty one.
+func ResponseContentParts(parts ...ResponsePart) ResponseContent {
+	if parts == nil {
+		parts = []ResponsePart{}
+	}
+	return ResponseContent{parts: slices.Clone(parts)}
+}
+
+// Text returns the text and whether the content is a string.
+func (c ResponseContent) Text() (string, bool) {
+	if c.text == nil {
+		return "", false
+	}
+	return *c.text, true
+}
+
+// Parts returns the content parts, or nil if the content is not an array.
+func (c ResponseContent) Parts() []ResponsePart { return c.parts }
+
+// IsZero reports whether the content is unset.
+func (c ResponseContent) IsZero() bool { return c.text == nil && c.parts == nil }
+
+// MarshalJSONTo writes the selected string or array.
+func (c ResponseContent) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return writeResponseTextOrList(enc, c.text, c.parts)
+}
+
+// UnmarshalJSONFrom reads a string or an array of content parts.
+func (c *ResponseContent) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	return readResponseTextOrList(dec, &c.text, &c.parts)
+}
+
+func writeResponseTextOrList[T any](enc *jsontext.Encoder, text *string, list []T) error {
+	if text != nil {
+		return enc.WriteToken(jsontext.String(*text))
+	}
+	if list != nil {
+		return json.MarshalEncode(enc, list)
+	}
+	return errors.New("expected a string or an array")
+}
+
+func readResponseTextOrList[T any](dec *jsontext.Decoder, text **string, list *[]T) error {
 	switch dec.PeekKind() {
 	case '"':
-		if err := json.UnmarshalDecode(dec, &next.Text); err != nil {
+		tok, err := dec.ReadToken()
+		if err != nil {
 			return err
 		}
+		*text, *list = new(tok.String()), nil
 	case '[':
-		if err := json.UnmarshalDecode(dec, &next.List); err != nil {
+		var values []T
+		if err := json.UnmarshalDecode(dec, &values); err != nil {
 			return err
 		}
+		*text, *list = nil, values
 	default:
 		return errors.New("expected a string or an array")
 	}
-	*v = next
 	return nil
 }
 
