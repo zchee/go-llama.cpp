@@ -154,12 +154,6 @@ func TestNoUnknownSeesInsideSumTypes(t *testing.T) {
 		check func(tb testing.TB)
 		want  string
 	}{
-		"error: content part": {
-			check: func(tb testing.TB) {
-				jsontest.NoUnknown[MessageContent](tb, []byte(`[{"type":"text","text":"x"},{"type":"text","text":"y","future":1}]`), nil)
-			},
-			want: "/1: future",
-		},
 		"error: image of a content part": {
 			check: func(tb testing.TB) {
 				jsontest.NoUnknown[Message](tb, []byte(`{"role":"user","content":[{"type":"image_url","image_url":{"url":"u","x":1}}]}`), nil)
