@@ -90,17 +90,12 @@ func (s secret) redact(text string) string {
 	return re.ReplaceAllString(text, redactedText)
 }
 
-// redactError returns err when its text does not contain the key, and otherwise wraps it in a redactedError.
+// redactError wraps keyed errors even when only their fields, not their message, contain the key.
 func (s secret) redactError(err error) error {
-	if err == nil || s.value() == "" {
+	if err == nil || s == nil {
 		return err
 	}
-	text := err.Error()
-	clean := s.redact(text)
-	if clean == text {
-		return err
-	}
-	return &redactedError{err: err, text: clean}
+	return &redactedError{err: err, text: s.redact(err.Error())}
 }
 
 // redactedError is an error whose text had the API key removed. Unwrap keeps the original chain available to

@@ -144,6 +144,8 @@ func TestRedactDiagnosticForms(t *testing.T) {
 		err  error
 		want string
 	}{
+		"success: key only in response header":           {key, &APIError{StatusCode: http.StatusForbidden, Header: http.Header{"X-Api-Key": {key}}}, "llama: HTTP 403"},
+		"success: wrapped transport request dump":        {key, fmt.Errorf("sending: %w", &dumpError{dump: "X-Api-Key: " + key}), "sending: request failed: X-Api-Key: [REDACTED]"},
 		"success: lower-case percent escape":             {key, &url.Error{Op: "Get", URL: "https://example.invalid/fake%2fa+b", Err: errTransportDown}, `Get "https://example.invalid/[REDACTED]": transport down`},
 		"success: escaped and literal bytes":             {key, errors.New("%66ak%65/a%2Bb"), redactedText},
 		"success: literal letters remain case-sensitive": {key, errors.New("Fake%2fa+b"), "Fake%2fa+b"},
@@ -156,6 +158,20 @@ func TestRedactDiagnosticForms(t *testing.T) {
 			if !errors.Is(got, tt.err) || got.Error() != tt.want {
 				t.Error("redaction changed the error chain or did not produce the expected diagnostic")
 			}
+			for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+				want := tt.want
+				if verb == "%q" {
+					want = fmt.Sprintf("%q", want)
+				}
+				if out := fmt.Sprintf(verb, got); out != want {
+					t.Errorf("format %s: got %s, want %s", verb, out, want)
+				}
+			}
+			if orig, ok := errors.AsType[*APIError](tt.err); ok {
+				if inner, ok := errors.AsType[*APIError](got); !ok || inner != orig {
+					t.Error("lost original APIError")
+				}
+			}
 		})
 	}
 }
@@ -166,9 +182,8 @@ func TestRedactErrorKeepsOtherErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := errors.New("connection refused")
-	// An unchanged error is the same value: it matches and has nothing wrapped around it.
-	if got := c.RedactError(plain); !errors.Is(got, plain) || errors.Unwrap(got) != nil {
-		t.Errorf("RedactError changed an error without the key: %v", got)
+	if got := c.RedactError(plain); !errors.Is(got, plain) || got.Error() != plain.Error() {
+		t.Errorf("RedactError did not preserve the cause and message: %v", got)
 	}
 	if got := c.RedactError(nil); got != nil {
 		t.Errorf("RedactError(nil) = %v", got)

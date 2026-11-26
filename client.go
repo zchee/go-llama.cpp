@@ -206,8 +206,8 @@ func (c Client) LogValue() slog.Value {
 	return slog.StringValue(c.String())
 }
 
-// RedactError returns err unchanged when its text does not contain the API key, and otherwise an error with the
-// same chain (errors.Is, errors.As and Unwrap still see err) whose text has every occurrence of the key replaced.
+// RedactError returns err unchanged if it is nil or no API key is configured. Otherwise the returned error
+// formats only the redacted message. Unwrap, errors.Is and errors.As still have access to the original error.
 // The client applies it to every error it returns; packages that send requests through HTTPClient themselves,
 // such as realtime, apply it to theirs.
 func (c *Client) RedactError(err error) error {
