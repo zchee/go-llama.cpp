@@ -63,6 +63,7 @@ const (
 
 // MessageContent is the "content" of a Message: a string, an array of content parts, or null. Build one with
 // TextContent, PartsContent or NullContent.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type MessageContent struct {
 	kind  ContentKind
 	text  string
@@ -89,7 +90,7 @@ func (m MessageContent) Kind() ContentKind { return m.kind }
 // Text returns the string of ContentKindText content.
 func (m MessageContent) Text() string { return m.text }
 
-// Parts returns the parts of ContentKindParts content.
+// Parts returns a read-only view of the parts of ContentKindParts content.
 func (m MessageContent) Parts() []ContentPart { return m.parts }
 
 // IsZero reports whether the content is unset.

@@ -52,6 +52,7 @@ type FunctionDefinition struct {
 // ToolChoice is the "tool_choice" of a request: a mode, a named function, or an allowlist of functions.
 // Build one with ToolChoiceMode, ToolChoiceFunction, or ToolChoiceAllowedTools. An object decoded with a
 // type other than "function" or "allowed_tools" is kept as received and re-encoded verbatim.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type ToolChoice struct {
 	mode     string
 	function *NamedToolChoice
@@ -123,12 +124,12 @@ func (c ToolChoice) Function() *NamedToolChoice { return c.function }
 // AllowedTools returns the object of a tool choice given as an allowlist.
 func (c ToolChoice) AllowedTools() *AllowedToolChoice { return c.allowed }
 
-// Unknown returns the raw bytes of a decoded object whose type the package does not know, or nil.
+// Unknown returns a read-only view of the raw JSON of an unrecognized object, or nil.
 func (c ToolChoice) Unknown() jsontext.Value {
 	if c.unknown == nil {
 		return nil
 	}
-	return c.unknown.Clone()
+	return *c.unknown
 }
 
 // IsZero reports whether the tool choice is unset.

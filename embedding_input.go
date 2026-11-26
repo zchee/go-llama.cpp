@@ -29,6 +29,7 @@ import (
 
 // EmbeddingInput is text, token ids, mixed text and ids, a prompt or content object, or a batch of inputs.
 // Its zero value is unset.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type EmbeddingInput struct {
 	prompt  Prompt
 	object  *EmbeddingPromptObject
@@ -159,7 +160,7 @@ func (in EmbeddingInput) Object() *EmbeddingPromptObject { return in.object }
 // Content returns the chat-style content object, or nil for other shapes.
 func (in EmbeddingInput) Content() *EmbeddingContent { return in.content }
 
-// Batch returns the batch of inputs, or nil for other shapes.
+// Batch returns a read-only view of the batch of inputs, or nil for other shapes.
 func (in EmbeddingInput) Batch() []EmbeddingInput { return in.batch }
 
 // IsZero reports whether the input is unset.

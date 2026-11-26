@@ -215,7 +215,6 @@ func TestEmbeddingVectorOf(t *testing.T) {
 			vals := []float64{1, -2}
 			v := EmbeddingVectorOf(test.format, vals...)
 			vals[0] = 7
-			v.Values()[1] = 7
 			got, err := json.Marshal(v)
 			if test.json == "" {
 				if err == nil {

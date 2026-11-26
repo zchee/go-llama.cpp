@@ -31,6 +31,7 @@ type Message struct {
 
 // Content holds a string, a list of blocks, an explicit null, or any other JSON value the server
 // tolerates. Its zero value omits an optional member.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type Content struct {
 	text   *string
 	blocks []ContentBlock
@@ -64,13 +65,13 @@ func (c Content) Text() (string, bool) {
 	return *c.text, true
 }
 
-// Blocks returns the typed array of blocks, or nil when content is not a block array.
+// Blocks returns a read-only view of the typed array of blocks, or nil when content is not a block array.
 func (c Content) Blocks() []ContentBlock { return c.blocks }
 
 // IsNull reports whether the content is explicitly null.
 func (c Content) IsNull() bool { return c.null }
 
-// Raw returns the stored JSON when the content uses the raw form, or nil otherwise.
+// Raw returns a read-only view of the stored JSON when the content uses the raw form, or nil otherwise.
 func (c Content) Raw() jsontext.Value { return c.raw }
 
 // IsZero reports whether the content is unset.

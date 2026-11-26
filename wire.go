@@ -300,6 +300,7 @@ const (
 // Prompt is the "prompt" (or "content") of a native request. The server accepts a string, an array of token ids,
 // an array mixing strings and token ids, a PromptObject, or an array of those for several prompts at once.
 // Build one with TextPrompt, TokenPrompt, MixedPrompt, ObjectPrompt, MultimodalPrompt or BatchPrompt.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type Prompt struct {
 	kind   PromptKind
 	text   string
@@ -414,16 +415,16 @@ func (p Prompt) Kind() PromptKind { return p.kind }
 // Text returns the string of a PromptKindText prompt.
 func (p Prompt) Text() string { return p.text }
 
-// Tokens returns the token ids of a PromptKindTokens prompt.
+// Tokens returns a read-only view of the token ids of a PromptKindTokens prompt.
 func (p Prompt) Tokens() []Token { return p.tokens }
 
-// Parts returns the elements of a PromptKindMixed prompt.
+// Parts returns a read-only view of the elements of a PromptKindMixed prompt.
 func (p Prompt) Parts() []PromptPart { return p.parts }
 
 // Object returns the object of a PromptKindObject prompt.
 func (p Prompt) Object() *PromptObject { return p.object }
 
-// Batch returns the prompts of a PromptKindBatch prompt.
+// Batch returns a read-only view of the prompts of a PromptKindBatch prompt.
 func (p Prompt) Batch() []Prompt { return p.batch }
 
 // IsZero reports whether the prompt is unset.
@@ -659,6 +660,7 @@ type LogitBiasEntry struct {
 // LogitBias is the "logit_bias" of a request. The server accepts an array of [token or string, bias] pairs or an
 // object mapping a token id or string to a bias, where a bias of false bans the token. Build one with
 // LogitBiasArray or LogitBiasObject.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type LogitBias struct {
 	entries []LogitBiasEntry
 	object  bool
@@ -675,7 +677,7 @@ func LogitBiasObject(entries ...LogitBiasEntry) LogitBias {
 	return LogitBias{entries: slices.Clone(entries), object: true}
 }
 
-// Entries returns the entries in order.
+// Entries returns a read-only view of the entries in order.
 func (b LogitBias) Entries() []LogitBiasEntry { return b.entries }
 
 // IsObject reports whether the bias is sent in object form.
@@ -820,6 +822,7 @@ func (e *LogitBiasEntry) unmarshalBias(v jsontext.Value) error {
 // StringOrSlice is a JSON value that is either a string or an array of strings, such as "stop". It remembers which
 // form it was built or decoded from, so that it encodes back to the same form. Build one with StringValue or
 // StringSlice.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type StringOrSlice struct {
 	values []string
 	single bool
@@ -836,7 +839,7 @@ func StringSlice(s ...string) StringOrSlice {
 	return StringOrSlice{values: slices.Clone(s)}
 }
 
-// Strings returns the strings; a single string is returned as a one-element slice.
+// Strings returns a read-only view of the strings; a single string is returned as a one-element slice.
 func (s StringOrSlice) Strings() []string { return s.values }
 
 // IsSingle reports whether the value is encoded as a single string.

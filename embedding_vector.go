@@ -27,6 +27,7 @@ import (
 // EmbeddingVector is a numeric vector decoded from a float array or a base64 string.
 // It marshals in the representation it was decoded from. Base64 decoding assumes a little-endian
 // server. Request EmbeddingEncodingFloat when the server's byte order is unknown.
+// Encoding after a write to the Values view is unspecified: a decoded float array may retain its original JSON.
 type EmbeddingVector struct {
 	values []float64
 	format EmbeddingEncodingFormat
@@ -49,8 +50,8 @@ func EmbeddingVectorOf(format EmbeddingEncodingFormat, values ...float64) Embedd
 // Len returns the number of values in the vector.
 func (v EmbeddingVector) Len() int { return len(v.values) }
 
-// Values returns a copy of the vector's numeric values.
-func (v EmbeddingVector) Values() []float64 { return slices.Clone(v.values) }
+// Values returns a read-only view of the vector's numeric values.
+func (v EmbeddingVector) Values() []float64 { return v.values }
 
 // Format returns the vector's wire format.
 func (v EmbeddingVector) Format() EmbeddingEncodingFormat {

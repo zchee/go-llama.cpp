@@ -42,6 +42,7 @@ type TokenizeRequest struct {
 
 // TokenizeContent is a string or an array of strings and token IDs. Unlike Prompt, it never represents a batch.
 // Construct it with TokenizeText or TokenizeParts. The zero value is omitted from TokenizeRequest.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type TokenizeContent struct {
 	text  *string
 	parts []PromptPart
@@ -66,7 +67,7 @@ func (c TokenizeContent) Text() (string, bool) {
 	return *c.text, true
 }
 
-// Parts returns the array elements, or nil if the content is not an array.
+// Parts returns a read-only view of the array elements, or nil if the content is not an array.
 func (c TokenizeContent) Parts() []PromptPart { return c.parts }
 
 // IsZero reports whether the content is unset.
@@ -206,6 +207,7 @@ func (t *TokenizeToken) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // TokenPiece is a token's UTF-8 string or, for an invalid UTF-8 fragment, a JSON array of byte values.
 // Construct it with TokenPieceText or TokenPieceBytes. The zero value represents an empty string.
+// Encoding the value after modifying a slice returned by its accessors is unspecified.
 type TokenPiece struct {
 	text string
 	raw  []byte
@@ -225,7 +227,7 @@ func TokenPieceBytes(data []byte) TokenPiece {
 // Text returns the text and whether the piece was encoded as a string.
 func (p TokenPiece) Text() (string, bool) { return p.text, p.raw == nil }
 
-// Bytes returns the bytes of an array piece, or nil for a text piece.
+// Bytes returns a read-only view of the bytes of an array piece, or nil for a text piece.
 func (p TokenPiece) Bytes() []byte { return p.raw }
 
 // MarshalJSONTo implements json.MarshalerTo.

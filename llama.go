@@ -29,14 +29,17 @@
 //
 // # Wire types
 //
-// Request and response types follow the JSON the server reads and writes. Every struct that maps a JSON object
-// has an Extra field tagged `json:",embed"` that collects members the struct does not name, so that members added
+// Request and response types follow the JSON that llama-server v1.1.0 reads and writes. Every struct that maps
+// a JSON object has an Extra field tagged `json:",embed"` that collects members the struct does not name, so that members added
 // by newer servers survive a decode and encode round trip at every level. Before sending a typed JSON request,
 // the client rejects an Extra key whose name exactly matches a JSON member of the same struct, including
 // promoted members, even when the typed field is unset. Use the named Go field instead.
 //
-// Optional scalars are pointers; set them with new, for example Temperature: new(0.0). Values that take several
-// JSON shapes, such as Prompt, LogitBias and StringOrSlice, are built with constructor functions.
+// Optional scalar fields use pointers when the server distinguishes zero from absence; set them with new, for
+// example Temperature: new(0.0). An empty optional model name is omitted. Values that take several JSON shapes,
+// such as [Prompt], [LogitBias] and [StringOrSlice], are built with constructor functions. Their slice accessors
+// return read-only views of the stored data; clone a slice before modifying its elements. If a caller writes
+// through a view, the result of encoding the value afterwards is unspecified.
 //
 // # Errors
 //
@@ -49,9 +52,11 @@
 //
 // # Streams
 //
-// Streaming methods return an iter.Seq2 that sends its request when the range loop starts and closes the
-// response body when the loop ends for any reason, including break and context cancellation. A stream can be
-// ranged over only once; a second range yields ErrStreamConsumed.
+// HTTP event streams return an [iter.Seq2] that sends its request when the range loop starts and closes the
+// response body when the loop ends for any reason, including break and context cancellation. An HTTP event
+// stream can be ranged over only once; a second range yields [ErrStreamConsumed]. In contrast,
+// [github.com/zchee/go-llama.cpp/realtime.Session.Events] allows one reader at a time, and breaking the loop
+// leaves the session open for a later iteration to read the next frame.
 //
 // # Retries
 //
