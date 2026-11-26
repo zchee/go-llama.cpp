@@ -44,6 +44,7 @@ package jsontest
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
@@ -162,8 +163,8 @@ func RoundTrip[T any](t testing.TB, data []byte) *T {
 	return v
 }
 
-// injectedName is the prefix of the members InjectUnknown adds.
-const injectedName = "x_jsontest_unknown"
+// A different name each run keeps a modeled member from standing in for the fallback.
+var injectedName = "x_jsontest_unknown_" + rand.Text()
 
 // InjectOption configures InjectUnknown.
 type InjectOption func(*injectConfig)
@@ -205,7 +206,7 @@ func InjectUnknown[T any](t testing.TB, data []byte, opts ...InjectOption) {
 	}
 	out, err := json.Marshal(v, options)
 	if err != nil {
-		t.Fatalf("encoding %T: %v", v, err)
+		t.Fatalf("encoding %T with probe %q: %v", v, injectedName, err)
 	}
 	got := generic(t, out)
 
@@ -217,10 +218,10 @@ func InjectUnknown[T any](t testing.TB, data []byte, opts ...InjectOption) {
 		}
 	}
 	if len(lost) > 0 {
-		t.Errorf("%T dropped the unknown member injected into %d object(s):\n  %s\nthe struct decoding each of these objects needs an Extra map[string]jsontext.Value `json:\",embed\"` field", v, len(lost), strings.Join(lost, "\n  "))
+		t.Errorf("%T dropped the unknown member %q injected into %d object(s):\n  %s\nthe struct decoding each of these objects needs an Extra map[string]jsontext.Value `json:\",embed\"` field", v, injectedName, len(lost), strings.Join(lost, "\n  "))
 	}
 	if diff := gocmp.Diff(tree, got); diff != "" {
-		t.Errorf("%T changed the injected document (-injected +re-encoded):\n%s", v, diff)
+		t.Errorf("%T changed the document with probe %q (-injected +re-encoded):\n%s", v, injectedName, diff)
 	}
 }
 

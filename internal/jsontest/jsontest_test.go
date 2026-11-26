@@ -148,6 +148,35 @@ func TestInjectUnknown(t *testing.T) {
 	}
 }
 
+type fixedNameCodec struct {
+	Known *string `json:"x_jsontest_unknown,omitzero"`
+}
+
+func (v *fixedNameCodec) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	type wire fixedNameCodec
+	return json.UnmarshalDecode(dec, (*wire)(v))
+}
+
+func TestUnknownMemberChecksRejectFixedNameCodec(t *testing.T) {
+	tests := map[string]struct{ data string }{
+		"error: modeled member absent":  {`{}`},
+		"error: modeled member present": {`{"x_jsontest_unknown":"recorded"}`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			data := []byte(tt.data)
+			r := run(t, func(tb testing.TB) {
+				CheckFallbacks[fixedNameCodec](tb)
+				NoUnknown[fixedNameCodec](tb, data, nil)
+				InjectUnknown[fixedNameCodec](tb, data)
+			})
+			if len(r.errors) == 0 || !strings.Contains(r.errors[0], "dropped the unknown member") || !strings.Contains(r.errors[0], injectedName) {
+				t.Errorf("checks did not report the dropped probe: %v", r.errors)
+			}
+		})
+	}
+}
+
 func TestNoUnknown(t *testing.T) {
 	data := []byte(`{"a":1,"x":1,"inner":{"b":"x","y":2},"list":[{"b":"y","z":3}]}`)
 	r := run(t, func(tb testing.TB) { NoUnknown[good](tb, data, nil) })
