@@ -122,7 +122,7 @@ func TestApplyTemplateOptions(t *testing.T) {
 			prompt:  "<|im_start|>user\nSay hi<|im_end|>\n",
 		},
 		"success: continue the final assistant message": {
-			request: llama.ApplyTemplateRequest{Messages: []llama.Message{user, assistant}, AddGenerationPrompt: new(false), ContinueFinalMessage: llama.ApplyTemplateContinueContent},
+			request: llama.ApplyTemplateRequest{Messages: []llama.Message{user, assistant}, AddGenerationPrompt: new(false), ContinueFinalMessage: llama.ContinuationContent},
 			prompt:  "<|im_start|>user\nSay hi<|im_end|>\n<|im_start|>assistant\nHi",
 		},
 		"success: Jinja parses the allowlist of function tools": {
@@ -187,7 +187,7 @@ func TestTokenizeEndpointErrors(t *testing.T) {
 				_, err := c.ApplyTemplate(t.Context(), &llama.ApplyTemplateRequest{
 					Messages:             []llama.Message{{Role: "user", Content: llama.TextContent("Hello")}},
 					AddGenerationPrompt:  new(true),
-					ContinueFinalMessage: llama.ApplyTemplateContinueAuto,
+					ContinueFinalMessage: llama.ContinuationAuto,
 				})
 				return err
 			},

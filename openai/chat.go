@@ -17,7 +17,6 @@ package openai
 import (
 	"context"
 	"encoding/json/jsontext"
-	"fmt"
 	"iter"
 	"net/http"
 
@@ -76,69 +75,23 @@ type ChatCompletionRequest struct {
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
-// ChatContinuation selects the assistant message field to continue, preserving the server's boolean, string and null forms.
-type ChatContinuation uint8
+// ChatContinuation is the shared [llama.Continuation] used by chat and template requests.
+type ChatContinuation = llama.Continuation
 
 const (
 	// ChatContinuationUnset omits continue_final_message from a request.
-	ChatContinuationUnset ChatContinuation = iota
-	// ChatContinuationNull sends an explicit null, disabling continuation.
-	ChatContinuationNull
+	ChatContinuationUnset = llama.ContinuationUnset
+	// ChatContinuationNull sends an explicit null.
+	ChatContinuationNull = llama.ContinuationNull
 	// ChatContinuationDisabled sends false.
-	ChatContinuationDisabled
+	ChatContinuationDisabled = llama.ContinuationDisabled
 	// ChatContinuationAuto sends true and lets the server select the field.
-	ChatContinuationAuto
+	ChatContinuationAuto = llama.ContinuationAuto
 	// ChatContinuationContent continues the content field.
-	ChatContinuationContent
+	ChatContinuationContent = llama.ContinuationContent
 	// ChatContinuationReasoning continues the reasoning_content field.
-	ChatContinuationReasoning
+	ChatContinuationReasoning = llama.ContinuationReasoning
 )
-
-// MarshalJSONTo writes the selected continuation form.
-func (c ChatContinuation) MarshalJSONTo(enc *jsontext.Encoder) error {
-	switch c {
-	case ChatContinuationNull:
-		return enc.WriteToken(jsontext.Null)
-	case ChatContinuationDisabled:
-		return enc.WriteToken(jsontext.False)
-	case ChatContinuationAuto:
-		return enc.WriteToken(jsontext.True)
-	case ChatContinuationContent:
-		return enc.WriteToken(jsontext.String("content"))
-	case ChatContinuationReasoning:
-		return enc.WriteToken(jsontext.String("reasoning_content"))
-	default:
-		return fmt.Errorf("openai: invalid chat continuation %d", c)
-	}
-}
-
-// UnmarshalJSONFrom reads a boolean, null, or an explicit field name accepted by llama.cpp.
-func (c *ChatContinuation) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	t, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch t.Kind() {
-	case 'n':
-		*c = ChatContinuationNull
-	case 't':
-		*c = ChatContinuationAuto
-	case 'f':
-		*c = ChatContinuationDisabled
-	case '"':
-		switch t.String() {
-		case "content":
-			*c = ChatContinuationContent
-		case "reasoning_content":
-			*c = ChatContinuationReasoning
-		default:
-			return fmt.Errorf("openai: invalid chat continuation field %q", t.String())
-		}
-	default:
-		return fmt.Errorf("openai: expected boolean, string or null chat continuation, got %s", t.Kind())
-	}
-	return nil
-}
 
 // ChatCompletionResponse is the result of a non-streaming chat completion.
 type ChatCompletionResponse struct {

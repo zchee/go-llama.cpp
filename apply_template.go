@@ -17,7 +17,6 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
-	"fmt"
 	"net/http"
 )
 
@@ -28,7 +27,7 @@ type ApplyTemplateRequest struct {
 	// AddGenerationPrompt appends the start of an assistant turn; the server defaults to true.
 	AddGenerationPrompt *bool `json:"add_generation_prompt,omitzero"`
 	// ContinueFinalMessage continues the final turn instead of starting a new one.
-	ContinueFinalMessage ApplyTemplateContinuation `json:"continue_final_message,omitzero"`
+	ContinueFinalMessage Continuation `json:"continue_final_message,omitzero"`
 	// ChatTemplateKwargs overrides the template variables configured on the server.
 	ChatTemplateKwargs map[string]jsontext.Value `json:"chat_template_kwargs,omitzero"`
 	// Tools contains OpenAI-format tool declarations; nonempty tools require Jinja.
@@ -67,64 +66,6 @@ type ApplyTemplateRequest struct {
 	ReasoningControl *bool `json:"reasoning_control,omitzero"`
 
 	Extra map[string]jsontext.Value `json:",embed"`
-}
-
-// ApplyTemplateContinuation represents a boolean, a named continuation mode, or explicit null.
-// The zero value is omitted from ApplyTemplateRequest.
-type ApplyTemplateContinuation string
-
-const (
-	// ApplyTemplateContinueAuto sends true and allows the template to select a continuation mode.
-	ApplyTemplateContinueAuto ApplyTemplateContinuation = "true"
-	// ApplyTemplateContinueDisabled sends false and disables explicit continuation.
-	ApplyTemplateContinueDisabled ApplyTemplateContinuation = "false"
-	// ApplyTemplateContinueContent continues the final message's content.
-	ApplyTemplateContinueContent ApplyTemplateContinuation = "content"
-	// ApplyTemplateContinueReasoning continues the final message's reasoning content.
-	ApplyTemplateContinueReasoning ApplyTemplateContinuation = "reasoning_content"
-	// ApplyTemplateContinueNull sends null and uses the server's default continuation behavior.
-	ApplyTemplateContinueNull ApplyTemplateContinuation = "null"
-)
-
-// MarshalJSONTo implements json.MarshalerTo.
-func (c ApplyTemplateContinuation) MarshalJSONTo(enc *jsontext.Encoder) error {
-	switch c {
-	case "", ApplyTemplateContinueNull:
-		return enc.WriteToken(jsontext.Null)
-	case ApplyTemplateContinueAuto:
-		return enc.WriteToken(jsontext.True)
-	case ApplyTemplateContinueDisabled:
-		return enc.WriteToken(jsontext.False)
-	case ApplyTemplateContinueContent, ApplyTemplateContinueReasoning:
-		return enc.WriteToken(jsontext.String(string(c)))
-	default:
-		return fmt.Errorf("llama: invalid template continuation mode %q", c)
-	}
-}
-
-// UnmarshalJSONFrom implements json.UnmarshalerFrom.
-func (c *ApplyTemplateContinuation) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch kind := tok.Kind(); kind {
-	case 'n':
-		*c = ApplyTemplateContinueNull
-	case 't':
-		*c = ApplyTemplateContinueAuto
-	case 'f':
-		*c = ApplyTemplateContinueDisabled
-	case '"':
-		mode := ApplyTemplateContinuation(tok.String())
-		if mode != ApplyTemplateContinueContent && mode != ApplyTemplateContinueReasoning {
-			return fmt.Errorf("llama: invalid template continuation mode %q", mode)
-		}
-		*c = mode
-	default:
-		return fmt.Errorf("llama: template continuation must be a boolean, string or null, got %s", kind)
-	}
-	return nil
 }
 
 // ApplyTemplateResponse is the JSON returned by POST /apply-template.

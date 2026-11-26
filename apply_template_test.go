@@ -81,25 +81,25 @@ func TestApplyTemplateWire(t *testing.T) {
 			prompt: "<|im_start|>user\nHello<|im_end|>\n",
 		},
 		"success: continue_auto": {
-			request: ApplyTemplateRequest{Messages: []Message{user, assistant}, AddGenerationPrompt: new(false), ContinueFinalMessage: ApplyTemplateContinueAuto},
+			request: ApplyTemplateRequest{Messages: []Message{user, assistant}, AddGenerationPrompt: new(false), ContinueFinalMessage: ContinuationAuto},
 			prompt:  continued,
 		},
 		"success: continue_content": {
-			request: ApplyTemplateRequest{Messages: []Message{user, assistant}, AddGenerationPrompt: new(false), ContinueFinalMessage: ApplyTemplateContinueContent},
+			request: ApplyTemplateRequest{Messages: []Message{user, assistant}, AddGenerationPrompt: new(false), ContinueFinalMessage: ContinuationContent},
 			prompt:  continued,
 		},
 		"success: continue_reasoning": {
 			request: ApplyTemplateRequest{
 				Messages:             []Message{user, {Role: "assistant", Content: TextContent(""), ReasoningContent: new("Think of a greeting")}},
 				AddGenerationPrompt:  new(false),
-				ContinueFinalMessage: ApplyTemplateContinueReasoning,
+				ContinueFinalMessage: ContinuationReasoning,
 			},
 			prompt: "<|im_start|>user\nSay hi<|im_end|>\n<|im_start|>assistant\n",
 		},
 		"success: continue_null": {
 			request: ApplyTemplateRequest{
 				Messages:             []Message{user},
-				ContinueFinalMessage: ApplyTemplateContinueNull,
+				ContinueFinalMessage: ContinuationNull,
 				ResponseFormat:       &ResponseFormat{Type: "json_object", Schema: jsontext.Value(`{"type":"object"}`)},
 			},
 			prompt: "<|im_start|>user\nSay hi<|im_end|>\n<|im_start|>assistant\n",
@@ -107,7 +107,7 @@ func TestApplyTemplateWire(t *testing.T) {
 		"success: named_tool": {
 			request: ApplyTemplateRequest{
 				Messages:             []Message{weather},
-				ContinueFinalMessage: ApplyTemplateContinueDisabled,
+				ContinueFinalMessage: ContinuationDisabled,
 				Tools:                tools,
 				ToolChoice:           ToolChoiceFunction("weather"),
 			},
@@ -147,7 +147,7 @@ func TestApplyTemplateWire(t *testing.T) {
 	}
 }
 
-func FuzzApplyTemplateContinuation(f *testing.F) {
+func FuzzContinuation(f *testing.F) {
 	for _, stem := range []string{"continue_auto", "continue_content", "continue_reasoning", "continue_null", "named_tool"} {
 		var request struct {
 			ContinueFinalMessage jsontext.Value `json:"continue_final_message"`
@@ -157,7 +157,7 @@ func FuzzApplyTemplateContinuation(f *testing.F) {
 		}
 		f.Add([]byte(request.ContinueFinalMessage))
 	}
-	f.Fuzz(tokenizeFuzzRoundTrip[ApplyTemplateContinuation])
+	f.Fuzz(tokenizeFuzzRoundTrip[Continuation])
 }
 
 func ExampleClient_ApplyTemplate() {
