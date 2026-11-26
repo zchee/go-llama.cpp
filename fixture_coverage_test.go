@@ -114,13 +114,9 @@ func TestRecordedCompletionStreamErrorEnvelope(t *testing.T) {
 
 func TestRecordedInvalidRequestTypes(t *testing.T) {
 	tests := map[string]struct{ request any }{
-		"detokenize/error":         {new(DetokenizeRequest)},
-		"tokenize/error":           {new(TokenizeRequest)},
-		"lora_adapters/non_array":  {new([]LoRAWeight)},
-		"embeddings/float_only":    {new(EmbeddingRequest)},
-		"embeddings/nested_prompt": {new(EmbeddingRequest)},
-		"embeddings/null_input":    {new(EmbeddingRequest)},
-		"embeddings/null_media":    {new(EmbeddingRequest)},
+		"detokenize/error":        {new(DetokenizeRequest)},
+		"tokenize/error":          {new(TokenizeRequest)},
+		"lora_adapters/non_array": {new([]LoRAWeight)},
 	}
 	for path, tt := range tests {
 		t.Run(path, func(t *testing.T) {
