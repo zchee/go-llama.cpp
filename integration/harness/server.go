@@ -36,6 +36,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -65,6 +66,9 @@ type Options struct {
 	Online bool
 	// Args are further command-line flags, for example "--metrics" or "--ctx-size", "512".
 	Args []string
+	// Env adds KEY=VALUE entries to the inherited environment. The harness reserves LLAMA_CACHE and the user
+	// config directory (XDG_CONFIG_HOME, or APPDATA on Windows). System-wide llama.cpp config still applies.
+	Env []string
 	// APIKey starts the server with --api-key.
 	APIKey string
 	// UnixSocket makes the server listen on a UNIX socket instead of a TCP port.
@@ -118,9 +122,11 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	}
 	s := &Server{dir: dir, logPath: filepath.Join(dir, "server.log"), APIKey: opts.APIKey, done: make(chan struct{})}
 
-	if err := os.Mkdir(s.CacheDir(), 0o700); err != nil {
-		_ = os.RemoveAll(dir)
-		return nil, err
+	for _, private := range []string{s.CacheDir(), filepath.Join(dir, "config")} {
+		if err := os.Mkdir(private, 0o700); err != nil {
+			_ = os.RemoveAll(dir)
+			return nil, err
+		}
 	}
 
 	args := []string{"--no-webui", "--log-colors", "off"}
@@ -188,7 +194,12 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// The processes write their output straight into the file, so no goroutine copies pipes.
 	s.cmd = exec.Command(self, append([]string{bin}, args...)...)
-	s.cmd.Env = append(os.Environ(), envSupervise+"=1", "LLAMA_CACHE="+s.CacheDir())
+	configEnv := "XDG_CONFIG_HOME"
+	if runtime.GOOS == "windows" {
+		configEnv = "APPDATA"
+	}
+	s.cmd.Env = append(os.Environ(), opts.Env...)
+	s.cmd.Env = append(s.cmd.Env, envSupervise+"=1", "LLAMA_CACHE="+s.CacheDir(), configEnv+"="+filepath.Join(dir, "config"))
 	s.cmd.Stdin = ownerRead
 	s.cmd.Stdout = logFile
 	s.cmd.Stderr = logFile

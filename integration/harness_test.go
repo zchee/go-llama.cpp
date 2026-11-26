@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -71,10 +72,31 @@ func TestServerCacheIsolation(t *testing.T) {
 	inherited := t.TempDir()
 	t.Setenv("LLAMA_CACHE", inherited)
 	t.Setenv("HF_HUB_CACHE", inherited)
+	// If the config is read, the router logs its path and requires credentials for GET /models.
+	configEnv := "XDG_CONFIG_HOME"
+	if runtime.GOOS == "windows" {
+		configEnv = "APPDATA"
+	}
+	configHome := t.TempDir()
+	t.Setenv(configEnv, configHome)
+	inheritedConfig := filepath.Join(configHome, "llama.cpp", "config.ini")
+	if err := os.Mkdir(filepath.Dir(inheritedConfig), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inheritedConfig, []byte("api-key = must-not-be-read\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	seen := map[string]bool{}
 	var servers []*harness.Server
-	for range 2 {
-		srv := harness.StartT(t, harness.Options{UnixSocket: true, Args: []string{"--verbosity", "4"}})
+	for _, env := range [][]string{nil, {"LLAMA_CACHE=" + inherited, configEnv + "=" + configHome}} {
+		srv := harness.StartT(t, harness.Options{UnixSocket: true, Args: []string{"--verbosity", "4"}, Env: env})
+		if strings.Contains(srv.LogTail(1<<20), "using config file: "+inheritedConfig) {
+			t.Fatal("llama-server read the inherited user config file")
+		}
+		c, _ := srv.Client(t)
+		if _, err := c.ListModels(t.Context()); err != nil {
+			t.Fatalf("GET /models without credentials: %v (a config file likely set an api-key)", err)
+		}
 		servers = append(servers, srv)
 		cache := srv.CacheDir()
 		if seen[cache] || cache == inherited || filepath.Dir(cache) != filepath.Dir(srv.Socket) {
@@ -101,6 +123,26 @@ func TestServerCacheIsolation(t *testing.T) {
 	}
 	if files, err := os.ReadDir(inherited); err != nil || len(files) != 0 {
 		t.Fatalf("inherited cache changed: %v (%v)", files, err)
+	}
+}
+
+func TestServerSlotsDebugEnv(t *testing.T) {
+	t.Setenv("LLAMA_SERVER_SLOTS_DEBUG", "0")
+	srv := harness.StartT(t, harness.Options{
+		Model: harness.Model(t, "stories260K"), Args: []string{"--ctx-size", "512", "--parallel", "1"},
+		Env: []string{"LLAMA_SERVER_SLOTS_DEBUG=1"},
+	})
+	c, _ := srv.Client(t)
+	const prompt = "Once"
+	if _, err := c.Completion(t.Context(), &llama.CompletionRequest{Prompt: llama.TextPrompt(prompt), NPredict: new(1), IDSlot: new(0)}); err != nil {
+		t.Fatal(err)
+	}
+	slots, err := c.Slots(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slots) != 1 || slots[0].ID != 0 || slots[0].Prompt == nil || !strings.Contains(*slots[0].Prompt, prompt) {
+		t.Errorf("GET /slots = %+v, want slot 0 with debug prompt containing %q", slots, prompt)
 	}
 }
 
