@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json/jsontext"
 	"errors"
 	"io"
 	"math"
@@ -238,6 +239,43 @@ func TestRealtimeOwnership(t *testing.T) {
 	}
 }
 
+func TestRealtimeRejectsExtraBeforeWriting(t *testing.T) {
+	s, body := observedRealtimeDial(t)
+	realtimeUntil(t, s, realtime.SessionCreated)
+	before := body.bytesWritten.Load()
+	err := s.UpdateSession(t.Context(), realtime.SessionConfig{Extra: map[string]jsontext.Value{"max_output_tokens": jsontext.Value(`7`)}})
+	if err == nil || err.Error() != `llama: realtime.SessionConfig.Extra contains "max_output_tokens"; use field MaxOutputTokens instead` {
+		t.Errorf("UpdateSession = %v, want an Extra collision error", err)
+	}
+	if n := body.bytesWritten.Load() - before; n != 0 {
+		t.Errorf("rejected update wrote %d bytes to the WebSocket", n)
+	}
+
+	if err := s.UpdateSession(t.Context(), realtime.SessionConfig{MaxOutputTokens: new(realtime.MaxOutputTokens(8))}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := realtimeUntil(t, s, realtime.SessionUpdated).Session
+	if cfg == nil || cfg.MaxOutputTokens == nil || *cfg.MaxOutputTokens != 8 {
+		t.Fatalf("first update received by the server should set max_output_tokens to 8: %+v", cfg)
+	}
+}
+
+func TestRealtimeRawEventBypassesExtraCheck(t *testing.T) {
+	c, _ := presetRealtimeOmni.server(t).Client(t)
+	s := realtimeDial(t, c, nil)
+	realtimeUntil(t, s, realtime.SessionCreated)
+	if err := s.Send(t.Context(), realtime.ClientEvent{
+		Raw:   jsontext.Value(`{"type":"future.client_event"}`),
+		Extra: map[string]jsontext.Value{"type": jsontext.Value(`"response.cancel"`)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ev := realtimeUntil(t, s, realtime.ErrorEvent)
+	if ev.Error == nil || ev.Error.Message != "unknown event type: future.client_event" {
+		t.Fatalf("server did not receive the raw event: %+v", ev.Error)
+	}
+}
+
 func TestRealtimeCancelResponse(t *testing.T) {
 	c, _ := presetRealtimeOmni.server(t).Client(t)
 	s := realtimeDial(t, c, nil)
@@ -297,12 +335,13 @@ type realtimeCloseTransport struct {
 
 type realtimeCloseBody struct {
 	io.ReadWriteCloser
-	closing    func()
-	blockWrite bool
-	closeCount atomic.Int32
-	closed     chan struct{}
-	close      func() error
-	timedOut   bool
+	closing      func()
+	blockWrite   bool
+	bytesWritten atomic.Int64
+	closeCount   atomic.Int32
+	closed       chan struct{}
+	close        func() error
+	timedOut     bool
 }
 
 func (tr *realtimeCloseTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -336,7 +375,9 @@ func (b *realtimeCloseBody) Write(p []byte) (int, error) {
 		<-b.closed
 		return 0, net.ErrClosed
 	}
-	return b.ReadWriteCloser.Write(p)
+	n, err := b.ReadWriteCloser.Write(p)
+	b.bytesWritten.Add(int64(n))
+	return n, err
 }
 
 func (b *realtimeCloseBody) Close() error {

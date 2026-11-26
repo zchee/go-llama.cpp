@@ -22,13 +22,22 @@ import (
 	"iter"
 
 	"github.com/coder/websocket"
+
+	"github.com/zchee/go-llama.cpp/internal/extraguard"
 )
 
 // ErrConcurrentReader is returned when another Events iteration is already reading the session.
 var ErrConcurrentReader = errors.New("realtime: another Events iterator is active")
 
-// Send writes a JSON text frame. Writes are serialized by the WebSocket connection and may run concurrently with Events.
+// Send writes a JSON text frame. It rejects Extra members that collide with typed fields before writing.
+// A frame supplied as ClientEvent.Raw is sent without this check.
+// Writes are serialized by the WebSocket connection and may run concurrently with Events.
 func (s *Session) Send(ctx context.Context, ev ClientEvent) error {
+	if ev.Raw == nil {
+		if err := extraguard.Check(ev); err != nil {
+			return s.client.RedactError(err)
+		}
+	}
 	b, err := json.Marshal(ev)
 	if err != nil {
 		return s.client.RedactError(fmt.Errorf("realtime: encoding client event: %w", err))
