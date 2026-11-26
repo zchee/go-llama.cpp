@@ -31,6 +31,8 @@ import (
 	"time"
 
 	backoff "github.com/cenkalti/backoff/v5"
+
+	"github.com/zchee/go-llama.cpp/internal/extraguard"
 )
 
 // Body is a request body that is sent as is, for payloads that are not JSON such as multipart/form-data.
@@ -58,7 +60,7 @@ func encodeBody(body any) ([]byte, string, error) {
 	case jsontext.Value:
 		return b, "application/json", nil
 	default:
-		if err := checkRequestExtra(body); err != nil {
+		if err := extraguard.Check(body); err != nil {
 			return nil, "", err
 		}
 		data, err := json.Marshal(body, jsonOptions)

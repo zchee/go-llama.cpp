@@ -122,24 +122,14 @@ func (c *Client) Speech(ctx context.Context, req *SpeechRequest, opts ...llama.R
 	return &llama.Audio{Body: resp.Body, ContentType: resp.Header.Get("Content-Type"), Format: llama.AudioFormat(format)}, nil
 }
 
-// speechSendRequest returns the request to send and the reference file to upload. An uploaded reference
-// makes the request a multipart form, whose text fields cannot carry an object or a boolean: an object
-// voice is reduced to its id, and with RawPrompt set the request is sent as JSON carrying the reference in
-// SpeakerRefB64 instead, because the server reads a form raw_prompt field as a string and silently falls
-// back to false. The uploaded bytes replace any SpeakerRefB64 value, keeping the documented precedence.
+// speechSendRequest selects JSON when multipart text fields would lose the type of raw_prompt.
 func speechSendRequest(req *SpeechRequest) (*SpeechRequest, *llama.SpeakerRef) {
 	ref := req.SpeakerRef
-	if ref == nil {
-		return req, nil
+	if ref == nil || req.RawPrompt == nil {
+		return req, ref
 	}
 	r := *req
-	if r.RawPrompt != nil {
-		r.SpeakerRefB64 = ref.Data
-		r.SpeakerRef = nil
-		return &r, nil
-	}
-	if r.Voice.Object != nil && r.Voice.Name == nil {
-		r.Voice = SpeechVoice{Name: r.Voice.Object.ID}
-	}
-	return &r, ref
+	r.SpeakerRefB64 = ref.Data
+	r.SpeakerRef = nil
+	return &r, nil
 }

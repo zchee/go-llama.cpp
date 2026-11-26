@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package llama
+// Package extraguard checks for conflicts between typed fields and extra request members.
+package extraguard
 
 import (
 	"encoding/json/jsontext"
@@ -49,7 +50,8 @@ type requestVisit struct {
 	length int
 }
 
-func checkRequestExtra(body any) error {
+// Check rejects extra members that name a typed field in the same request object.
+func Check(body any) error {
 	return walkRequest(reflect.ValueOf(body), nil, true)
 }
 

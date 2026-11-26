@@ -20,6 +20,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/zchee/go-llama.cpp/internal/extraguard"
 )
 
 func TestRequestExtra(t *testing.T) {
@@ -126,12 +128,12 @@ func TestRequestExtraCycle(t *testing.T) {
 func BenchmarkRequestWithoutExtra(b *testing.B) {
 	body := &CompletionRequest{Prompt: TextPrompt("Once"), NPredict: new(1)}
 	b.Run("checkRequestExtra", func(b *testing.B) {
-		if err := checkRequestExtra(body); err != nil {
+		if err := extraguard.Check(body); err != nil {
 			b.Fatal(err)
 		}
 		b.ReportAllocs()
 		for b.Loop() {
-			if err := checkRequestExtra(body); err != nil {
+			if err := extraguard.Check(body); err != nil {
 				b.Fatal(err)
 			}
 		}

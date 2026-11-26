@@ -131,7 +131,7 @@ func TestSpeechSendRequest(t *testing.T) {
 		wantJSON  bool
 		wantVoice string
 	}{
-		"success: object voice with uploaded reference is reduced to its id": {req: &SpeechRequest{Input: new("Hi"), Voice: object, SpeakerRef: ref}, wantVoice: `"demo"`},
+		"success: object voice stays typed until multipart encoding":         {req: &SpeechRequest{Input: new("Hi"), Voice: object, SpeakerRef: ref}, wantVoice: `{"id":"demo"}`},
 		"success: named voice with uploaded reference is kept":               {req: &SpeechRequest{Input: new("Hi"), Voice: SpeechVoice{Name: new("demo")}, SpeakerRef: ref}, wantVoice: `"demo"`},
 		"success: raw prompt with uploaded reference keeps the object voice": {req: &SpeechRequest{Input: new("Hi"), RawPrompt: new(true), Voice: object, SpeakerRef: ref}, wantJSON: true, wantVoice: `{"id":"demo"}`},
 		"success: no reference leaves the request alone":                     {req: &SpeechRequest{Input: new("Hi"), Voice: object}, wantVoice: `{"id":"demo"}`},

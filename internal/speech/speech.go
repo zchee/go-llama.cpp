@@ -30,6 +30,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/zchee/go-llama.cpp/internal/extraguard"
 )
 
 // Format describes the encoding advertised by the speech response's Content-Type.
@@ -89,6 +91,9 @@ func parseFormat(contentType string) (Format, error) {
 
 // Multipart encodes request's JSON fields as form text and appends the uploaded reference.
 func Multipart(request any, reference []byte, filename, contentType string) ([]byte, string, error) {
+	if err := extraguard.Check(request); err != nil {
+		return nil, "", err
+	}
 	data, err := json.Marshal(request, json.Deterministic(true))
 	if err != nil {
 		return nil, "", err
@@ -102,7 +107,19 @@ func Multipart(request any, reference []byte, filename, contentType string) ([]b
 	for _, k := range slices.Sorted(maps.Keys(fields)) {
 		v := fields[k]
 		text := string(v)
-		if v.Kind() == '"' {
+		if k == "voice" && v.Kind() == '{' {
+			// Multipart voice fields carry just the id, not the JSON object.
+			var voice struct {
+				ID *string `json:"id"`
+			}
+			if err := json.Unmarshal(v, &voice); err != nil {
+				return nil, "", err
+			}
+			if voice.ID == nil {
+				continue
+			}
+			text = *voice.ID
+		} else if v.Kind() == '"' {
 			if err := json.Unmarshal(v, &text); err != nil {
 				return nil, "", err
 			}
