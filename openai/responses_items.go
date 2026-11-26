@@ -47,7 +47,7 @@ func (i ResponseInput) Text() (string, bool) {
 	return *i.text, true
 }
 
-// Items returns the conversation items, or nil if the input is not an array.
+// Items returns a read-only view of the stored conversation items, or nil if the input is not an array.
 func (i ResponseInput) Items() []ResponseItem { return i.items }
 
 // IsZero reports whether the input is unset.
@@ -89,7 +89,7 @@ func (c ResponseContent) Text() (string, bool) {
 	return *c.text, true
 }
 
-// Parts returns the content parts, or nil if the content is not an array.
+// Parts returns a read-only view of the stored content parts, or nil if the content is not an array.
 func (c ResponseContent) Parts() []ResponsePart { return c.parts }
 
 // IsZero reports whether the content is unset.
