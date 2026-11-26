@@ -77,9 +77,10 @@ func ImageURLPart(url string) ContentPart { return llama.ImageURLContentPart(url
 type InputTokensResponse struct {
 	// Object is "response.input_tokens".
 	Object string `json:"object"`
-	// InputTokens is the number of tokens the input would take.
+	// InputTokens counts the tokens in the rendered chat prompt before generation.
 	InputTokens int64 `json:"input_tokens"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -123,8 +124,9 @@ type JSONSchemaFormat = llama.JSONSchemaFormat
 
 // StreamOptions are the "stream_options" of a streaming request.
 type StreamOptions struct {
-	// IncludeUsage adds a final chunk with the token usage.
+	// IncludeUsage adds a final usage-only chat chunk when true; text completions include usage either way.
 	IncludeUsage *bool `json:"include_usage,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }

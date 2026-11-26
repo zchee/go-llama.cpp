@@ -28,13 +28,14 @@ import (
 // SpeechRequest generates speech in wav or pcm (signed 16-bit) format.
 type SpeechRequest struct {
 	llama.TTSParams
-	// Voice selects a voice by name or by an object containing its id.
+	// Voice selects a voice by name or id object; when omitted, the server uses its configured voice unless a
+	// speaker reference is provided.
 	Voice SpeechVoice `json:"voice,omitzero"`
-	// StreamFormat selects audio streaming; the server does not support sse.
+	// StreamFormat accepts "audio" to enable streaming; omission leaves the native Stream option in effect.
 	StreamFormat *string `json:"stream_format,omitzero"`
 	// Instructions is accepted but ignored by llama-server.
 	Instructions *string `json:"instructions,omitzero"`
-	// Extra preserves additional request fields.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -52,9 +53,9 @@ type SpeechVoice struct {
 // SpeechVoiceID is an OpenAI voice identifier in object form. The server reads only its id, so a decoded
 // {"id": null} re-encodes as {}: the server treats a null, absent and empty id alike.
 type SpeechVoiceID struct {
-	// ID is the model's voice name.
+	// ID is the model's voice name; an absent, null, or empty id selects no named voice.
 	ID *string `json:"id,omitzero"`
-	// Extra preserves additional voice fields.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

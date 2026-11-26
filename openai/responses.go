@@ -31,46 +31,69 @@ import (
 // it does not store previous responses or resolve previous_response_id.
 type ResponsesRequest struct {
 	llama.SamplingParams
-	// Model selects the model in router mode.
-	Model             string                    `json:"model,omitzero"`
-	Input             ResponseInput             `json:"input"`
-	Instructions      *string                   `json:"instructions,omitzero"`
-	MaxOutputTokens   *int                      `json:"max_output_tokens,omitzero"`
-	Stream            *bool                     `json:"stream,omitzero"`
-	Tools             []ResponseTool            `json:"tools,omitzero"`
-	ToolChoice        ToolChoice                `json:"tool_choice,omitzero"`
-	ParallelToolCalls *bool                     `json:"parallel_tool_calls,omitzero"`
-	Reasoning         *ResponseReasoningOptions `json:"reasoning,omitzero"`
-	Text              *ResponseTextOptions      `json:"text,omitzero"`
-	ExtraParams       *ResponseExtraParams      `json:"extra_params,omitzero"`
-	Extra             map[string]jsontext.Value `json:",embed"`
+	// Model selects the target model in router mode; single-model servers ignore it.
+	Model string `json:"model,omitzero"`
+	// Input supplies the required user prompt or ordered conversation history.
+	Input ResponseInput `json:"input"`
+	// Instructions prepends a system message to Input; omission adds no system message.
+	Instructions *string `json:"instructions,omitzero"`
+	// MaxOutputTokens caps generated tokens as max_tokens in the converted chat request, which uses the server limit
+	// when no token limit is supplied.
+	MaxOutputTokens *int `json:"max_output_tokens,omitzero"`
+	// Stream selects SSE instead of a single JSON response; Responses and ResponsesStream set it automatically.
+	Stream *bool `json:"stream,omitzero"`
+	// Tools defines the functions available to the model; omission advertises no functions.
+	Tools []ResponseTool `json:"tools,omitzero"`
+	// ToolChoice controls when and which functions may be called, defaulting to "auto".
+	ToolChoice ToolChoice `json:"tool_choice,omitzero"`
+	// ParallelToolCalls allows more than one tool call in a reply, defaulting to the chat template's capability.
+	ParallelToolCalls *bool `json:"parallel_tool_calls,omitzero"`
+	// Reasoning overrides the chat template's reasoning effort when provided.
+	Reasoning *ResponseReasoningOptions `json:"reasoning,omitzero"`
+	// Text sets an output text constraint; omission adds no constraint.
+	Text *ResponseTextOptions `json:"text,omitzero"`
+	// ExtraParams applies last to the converted chat request and leaves it unchanged when omitted.
+	ExtraParams *ResponseExtraParams `json:"extra_params,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseTool is a flat Responses function definition. Non-function tools are ignored by the server.
 type ResponseTool struct {
-	Type        string                    `json:"type"`
-	Name        *string                   `json:"name,omitzero"`
-	Description *string                   `json:"description,omitzero"`
-	Parameters  jsontext.Value            `json:"parameters,omitzero"`
-	Strict      *bool                     `json:"strict,omitzero"`
-	Extra       map[string]jsontext.Value `json:",embed"`
+	// Type must be "function" for the server to advertise this tool to the model.
+	Type string `json:"type"`
+	// Name is the required function name the model uses in a call.
+	Name *string `json:"name,omitzero"`
+	// Description tells the model when to call the function; omission supplies no description.
+	Description *string `json:"description,omitzero"`
+	// Parameters is the JSON Schema for the function's arguments, defaulting to an empty object.
+	Parameters jsontext.Value `json:"parameters,omitzero"`
+	// Strict defaults to true during conversion to chat, but the chat tool parser ignores it.
+	Strict *bool `json:"strict,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseReasoningOptions configures the reasoning effort of the model.
 type ResponseReasoningOptions struct {
-	Effort *string                   `json:"effort,omitzero"`
-	Extra  map[string]jsontext.Value `json:",embed"`
+	// Effort sets the chat template's reasoning level, with "none" disabling reasoning and omission using the default.
+	Effort *string `json:"effort,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseTextOptions configures the format of the response text.
 type ResponseTextOptions struct {
-	Format *ResponseTextFormat       `json:"format,omitzero"`
-	Extra  map[string]jsontext.Value `json:",embed"`
+	// Format selects text or a JSON constraint; omission leaves the chat response format unchanged.
+	Format *ResponseTextFormat `json:"format,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseTextFormat describes a text, json_object or json_schema format.
 // Unlike the chat endpoint, the name and schema are members of this object.
 type ResponseTextFormat struct {
+	// Type selects unconstrained "text", "json_object", or "json_schema"; an empty value leaves the format unchanged.
 	Type string `json:"type"`
 	JSONSchemaFormat
 }
@@ -78,30 +101,45 @@ type ResponseTextFormat struct {
 // ResponseExtraParams overrides fields in the converted chat request, including sampling options.
 type ResponseExtraParams struct {
 	llama.SamplingParams
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Response is a completed response or a response snapshot in a lifecycle event.
 // In-progress snapshots contain only ID, Object and Status.
 type Response struct {
-	ID          string                    `json:"id"`
-	Object      string                    `json:"object"`
-	Status      string                    `json:"status"`
-	CreatedAt   *int64                    `json:"created_at,omitzero"`
-	CompletedAt *int64                    `json:"completed_at,omitzero"`
-	Model       *string                   `json:"model,omitzero"`
-	Output      []ResponseItem            `json:"output,omitzero"`
-	Usage       *ResponseUsage            `json:"usage,omitzero"`
-	Extra       map[string]jsontext.Value `json:",embed"`
+	// ID is the server-assigned response identifier shared across lifecycle events.
+	ID string `json:"id"`
+	// Object is "response" in every snapshot and in the non-streaming response.
+	Object string `json:"object"`
+	// Status is "in_progress" in the initial stream snapshots and "completed" in the final response.
+	Status string `json:"status"`
+	// CreatedAt is the Unix timestamp in seconds, written when the server builds the completed response.
+	CreatedAt *int64 `json:"created_at,omitzero"`
+	// CompletedAt is the Unix timestamp in seconds for completion and appears only on non-streaming responses.
+	CompletedAt *int64 `json:"completed_at,omitzero"`
+	// Model identifies the model that generated the completed response and is absent from in-progress snapshots.
+	Model *string `json:"model,omitzero"`
+	// Output contains the generated reasoning, message, and tool calls in order and is absent while in progress.
+	Output []ResponseItem `json:"output,omitzero"`
+	// Usage reports the token totals for a completed response and is absent while in progress.
+	Usage *ResponseUsage `json:"usage,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseUsage counts the tokens consumed and produced by the model.
 type ResponseUsage struct {
-	InputTokens        int64                     `json:"input_tokens"`
-	OutputTokens       int64                     `json:"output_tokens"`
-	TotalTokens        int64                     `json:"total_tokens"`
+	// InputTokens counts the tokens in the converted, templated chat prompt.
+	InputTokens int64 `json:"input_tokens"`
+	// OutputTokens counts tokens decoded by the model, including any reasoning and function calls.
+	OutputTokens int64 `json:"output_tokens"`
+	// TotalTokens is the sum of InputTokens and OutputTokens.
+	TotalTokens int64 `json:"total_tokens"`
+	// InputTokensDetails counts how many prompt tokens the server reused from its cache.
 	InputTokensDetails llama.PromptTokensDetails `json:"input_tokens_details"`
-	Extra              map[string]jsontext.Value `json:",embed"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Responses creates a non-streaming response. It never mutates req.

@@ -138,50 +138,77 @@ func readResponseTextOrList[T any](dec *jsontext.Decoder, text **string, list *[
 // ResponseItem is one item in the input history or the response output.
 // Value is a *ResponseMessage, *ResponseFunctionCall, *ResponseFunctionOutput,
 // *ResponseReasoningItem, or *ResponseUnknown.
-type ResponseItem struct{ Value ResponseItemValue }
+type ResponseItem struct {
+	// Value holds the concrete object selected by the wire type, or by the message shape for untagged input.
+	Value ResponseItemValue
+}
 
 // ResponseItemValue is the object selected by an item's type discriminator.
 type ResponseItemValue interface{ responsesItem() }
 
 // ResponseMessage is a message item. Type may be omitted on user, system and developer input.
 type ResponseMessage struct {
-	Type    string                    `json:"type,omitzero"`
-	Role    string                    `json:"role"`
-	Content ResponseContent           `json:"content,omitzero"`
-	ID      *string                   `json:"id,omitzero"`
-	Status  *string                   `json:"status,omitzero"`
-	Extra   map[string]jsontext.Value `json:",embed"`
+	// Type is "message" in output and assistant history; user, system, and developer messages may omit it.
+	Type string `json:"type,omitzero"`
+	// Role is "assistant" in output and identifies the speaker for each input message.
+	Role string `json:"role"`
+	// Content carries text or parts; assistant history without content is converted to an empty part list.
+	Content ResponseContent `json:"content,omitzero"`
+	// ID identifies the server-generated assistant message across its stream events and is not needed in history.
+	ID *string `json:"id,omitzero"`
+	// Status is "in_progress" on an added output message and "completed" on a finished one; history ignores it.
+	Status *string `json:"status,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseFunctionCall is a function_call item. Arguments is JSON encoded inside a string.
 type ResponseFunctionCall struct {
-	Type      string                    `json:"type"`
-	CallID    string                    `json:"call_id"`
-	Name      string                    `json:"name"`
-	Arguments string                    `json:"arguments"`
-	ID        *string                   `json:"id,omitzero"`
-	Status    *string                   `json:"status,omitzero"`
-	Extra     map[string]jsontext.Value `json:",embed"`
+	// Type is "function_call" in output and is required when supplying the call in history.
+	Type string `json:"type"`
+	// CallID is the call identifier to repeat in the matching ResponseFunctionOutput.
+	CallID string `json:"call_id"`
+	// Name identifies the declared function the model chose to call.
+	Name string `json:"name"`
+	// Arguments is a string containing the JSON arguments; it is empty when the stream first adds the call.
+	Arguments string `json:"arguments"`
+	// ID is the server-assigned item identifier used in stream events, distinct from CallID and ignored in history.
+	ID *string `json:"id,omitzero"`
+	// Status is "in_progress" on an added call and "completed" when finished; the server ignores it in history.
+	Status *string `json:"status,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseFunctionOutput is a function_call_output supplied by the caller in the next request.
 type ResponseFunctionOutput struct {
-	Type   string                    `json:"type"`
-	CallID string                    `json:"call_id"`
-	Output ResponseContent           `json:"output,omitzero"`
-	Extra  map[string]jsontext.Value `json:",embed"`
+	// Type must be "function_call_output" so the server converts this item to a tool message.
+	Type string `json:"type"`
+	// CallID must match the CallID of the function call this result answers.
+	CallID string `json:"call_id"`
+	// Output supplies the required tool result as a string or an array of input_text and input_image parts.
+	Output ResponseContent `json:"output,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseReasoningItem is a reasoning item. The server reads the first content part's text from history.
 type ResponseReasoningItem struct {
-	Type   string  `json:"type"`
-	ID     *string `json:"id,omitzero"`
+	// Type is "reasoning" and is required on a reasoning item supplied in history.
+	Type string `json:"type"`
+	// ID is the server-assigned reasoning item identifier used in stream deltas and ignored in history.
+	ID *string `json:"id,omitzero"`
+	// Status is "in_progress" when a stream adds the item, "completed" without streaming, and absent from the
+	// final stream item.
 	Status *string `json:"status,omitzero"`
 	// Summary is always an array on the wire so the server can identify reasoning items in history.
-	Summary          []jsontext.Value          `json:"summary"`
-	Content          []ResponsePart            `json:"content,omitzero"`
-	EncryptedContent *string                   `json:"encrypted_content,omitzero"`
-	Extra            map[string]jsontext.Value `json:",embed"`
+	Summary []jsontext.Value `json:"summary"`
+	// Content holds the reasoning text, is empty when a stream adds the item, and must be nonempty in history.
+	Content []ResponsePart `json:"content,omitzero"`
+	// EncryptedContent is emitted as an empty string and is not read when the item is supplied in history.
+	EncryptedContent *string `json:"encrypted_content,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // MarshalJSONTo writes the summary as an array, including when it is nil.
@@ -195,7 +222,9 @@ func (i ResponseReasoningItem) MarshalJSONTo(enc *jsontext.Encoder) error {
 
 // ResponseUnknown preserves the fields of an unrecognized item, part or event without interpreting them.
 type ResponseUnknown struct {
-	Type  string                    `json:"type,omitzero"`
+	// Type retains the unrecognized discriminator so the object can be re-encoded without interpreting it.
+	Type string `json:"type,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -230,7 +259,10 @@ func (i *ResponseItem) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // ResponsePart is one content part. Value is a *ResponseTextPart, *ResponseImagePart,
 // *ResponseRefusalPart, or *ResponseUnknown.
-type ResponsePart struct{ Value ResponsePartValue }
+type ResponsePart struct {
+	// Value holds the concrete content object selected by the wire type.
+	Value ResponsePartValue
+}
 
 // ResponsePartValue is the object selected by a content part's type discriminator.
 type ResponsePartValue interface{ responsesPart() }
@@ -238,25 +270,36 @@ type ResponsePartValue interface{ responsesPart() }
 // ResponseTextPart is an input_text, output_text or reasoning_text part. The server emits empty
 // annotations and logprobs arrays on finished output_text parts but not on unfinished ones.
 type ResponseTextPart struct {
-	Type        string                    `json:"type"`
-	Text        string                    `json:"text"`
-	Annotations []jsontext.Value          `json:"annotations,omitzero"`
-	Logprobs    []jsontext.Value          `json:"logprobs,omitzero"`
-	Extra       map[string]jsontext.Value `json:",embed"`
+	// Type distinguishes "input_text", "output_text", and "reasoning_text" on the wire.
+	Type string `json:"type"`
+	// Text carries the literal prompt, generated reply, or reasoning text according to Type.
+	Text string `json:"text"`
+	// Annotations is an empty array on completed output text and is otherwise omitted by the server.
+	Annotations []jsontext.Value `json:"annotations,omitzero"`
+	// Logprobs is an empty array on completed output text; the server does not populate token probabilities here.
+	Logprobs []jsontext.Value `json:"logprobs,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseImagePart is an input_image part. ImageURL is a string, not a chat image_url object.
 type ResponseImagePart struct {
-	Type     string                    `json:"type"`
-	ImageURL string                    `json:"image_url"`
-	Extra    map[string]jsontext.Value `json:",embed"`
+	// Type must be "input_image" to pass the image to the chat parser.
+	Type string `json:"type"`
+	// ImageURL is the required image source, supplied as an HTTP(S) URL, data URL, or bare base64.
+	ImageURL string `json:"image_url"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseRefusalPart is a refusal in an assistant message supplied as history.
 type ResponseRefusalPart struct {
-	Type    string                    `json:"type"`
-	Refusal string                    `json:"refusal"`
-	Extra   map[string]jsontext.Value `json:",embed"`
+	// Type must be "refusal" to identify this part in assistant history.
+	Type string `json:"type"`
+	// Refusal supplies the required text of the prior assistant refusal.
+	Refusal string `json:"refusal"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 func (*ResponseTextPart) responsesPart()    {}

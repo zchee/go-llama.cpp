@@ -30,51 +30,53 @@ const chatCompletionsPath = "/v1/chat/completions"
 // ChatCompletionRequest is a chat conversation and its generation options. ChatInputTokens accepts the same body.
 type ChatCompletionRequest struct {
 	llama.SamplingParams
-	// Model selects the model in router mode.
+	// Model selects the target model in router mode; single-model servers ignore it.
 	Model string `json:"model,omitzero"`
-	// Messages is the conversation in chronological order.
+	// Messages supplies the required conversation in chronological order for the chat template.
 	Messages []Message `json:"messages"`
-	// MaxTokens limits the number of generated tokens.
+	// MaxTokens sets the generated-token limit if neither MaxCompletionTokens nor SamplingParams.NPredict is set;
+	// when all three are omitted the server's limit applies.
 	MaxTokens *int `json:"max_tokens,omitzero"`
-	// MaxCompletionTokens is another spelling of the generation limit.
+	// MaxCompletionTokens sets the generated-token limit ahead of MaxTokens but after SamplingParams.NPredict.
 	MaxCompletionTokens *int `json:"max_completion_tokens,omitzero"`
-	// N is the number of choices to generate.
+	// N requests the number of choices from 1 to the server's parallel slot count, defaulting to 1.
 	N *int `json:"n,omitzero"`
-	// NCmpl is the native spelling of N.
+	// NCmpl is the native spelling of N and takes precedence over it.
 	NCmpl *int `json:"n_cmpl,omitzero"`
-	// Stream requests SSE on the wire. The method used determines the response mode.
+	// Stream selects SSE instead of a single JSON response; ChatCompletions and ChatCompletionsStream set the mode.
 	Stream *bool `json:"stream,omitzero"`
-	// StreamOptions controls whether the stream includes a final usage chunk.
+	// StreamOptions configures the stream's final usage chunk, which is absent by default.
 	StreamOptions *StreamOptions `json:"stream_options,omitzero"`
-	// Tools describes the functions available to the model.
+	// Tools describes the functions available to the model; omission advertises no functions.
 	Tools []Tool `json:"tools,omitzero"`
-	// ToolChoice selects how the model may call the supplied tools.
+	// ToolChoice controls when and which functions may be called, defaulting to "auto".
 	ToolChoice ToolChoice `json:"tool_choice,omitzero"`
-	// ParallelToolCalls allows multiple calls when supported by the template.
+	// ParallelToolCalls allows more than one tool call in a reply, defaulting to the chat template's capability.
 	ParallelToolCalls *bool `json:"parallel_tool_calls,omitzero"`
-	// ResponseFormat constrains the output to text, a JSON object, or a JSON schema.
+	// ResponseFormat selects text, a JSON object, or a JSON schema; omission adds no format constraint.
 	ResponseFormat *ResponseFormat `json:"response_format,omitzero"`
-	// Logprobs requests token probabilities in each choice. The server also accepts an integer
-	// here as an alias of n_probs; send that form through SamplingParams.NProbs instead.
+	// Logprobs requests per-token probability reports, defaults to false, and cannot be true when streaming tools;
+	// use SamplingParams.NProbs to supply a native integer count instead.
 	Logprobs *bool `json:"logprobs,omitzero"`
-	// TopLogprobs is the number of alternatives per token when Logprobs is true.
+	// TopLogprobs is the number of alternatives per token when Logprobs is true, defaulting to 20.
 	TopLogprobs *int `json:"top_logprobs,omitzero"`
-	// ChatTemplateKwargs overrides named Jinja template arguments, preserving their JSON types.
+	// ChatTemplateKwargs overrides server-configured Jinja template arguments, preserving their JSON types.
 	ChatTemplateKwargs map[string]jsontext.Value `json:"chat_template_kwargs,omitzero"`
-	// ReasoningEffort is passed to the template; "none" disables reasoning.
+	// ReasoningEffort overrides the template's default effort; "none" disables reasoning.
 	ReasoningEffort *string `json:"reasoning_effort,omitzero"`
-	// ThinkingBudgetTokens is the alternative spelling of reasoning_budget_tokens.
+	// ThinkingBudgetTokens caps reasoning tokens if SamplingParams.ReasoningBudgetTokens is unset; the server's
+	// configured budget applies if neither field sets a budget.
 	ThinkingBudgetTokens *int `json:"thinking_budget_tokens,omitzero"`
-	// ReasoningBudgetEndTag is the singular alternative to reasoning_budget_end_tags.
+	// ReasoningBudgetEndTag supplies one closing tag when neither the request nor the template sets end tags.
 	ReasoningBudgetEndTag *string `json:"reasoning_budget_end_tag,omitzero"`
-	// AddGenerationPrompt appends the assistant prefix before generation.
+	// AddGenerationPrompt appends the assistant prefix, defaulting to true except on automatic assistant prefill.
 	AddGenerationPrompt *bool `json:"add_generation_prompt,omitzero"`
-	// ContinueFinalMessage continues the final assistant message instead of starting another.
+	// ContinueFinalMessage continues the final assistant message; when omitted the server's prefill setting applies.
 	ContinueFinalMessage ChatContinuation `json:"continue_final_message,omitzero"`
-	// Echo includes the prefilled part of a continued assistant message.
+	// Echo includes the prefilled part of a continued assistant message, which is otherwise omitted.
 	Echo *bool `json:"echo,omitzero"`
 
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -116,7 +118,7 @@ type ChatCompletionResponse struct {
 	Timings *llama.Timings `json:"timings,omitzero"`
 	// Verbose is the native debug response, whose members depend on response_fields.
 	Verbose jsontext.Value `json:"__verbose,omitzero"`
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -130,7 +132,7 @@ type ChatCompletionChoice struct {
 	FinishReason string `json:"finish_reason"`
 	// Logprobs contains token probabilities if requested.
 	Logprobs *ChatCompletionLogprobs `json:"logprobs,omitzero"`
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -138,7 +140,7 @@ type ChatCompletionChoice struct {
 type ChatCompletionLogprobs struct {
 	// Content gives one distribution per generated token.
 	Content []llama.TokenProb `json:"content"`
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -164,7 +166,7 @@ type ChatCompletionChunk struct {
 	PromptProgress *llama.PromptProgress `json:"prompt_progress,omitzero"`
 	// Verbose is the native debug response, whose members depend on response_fields.
 	Verbose jsontext.Value `json:"__verbose,omitzero"`
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -178,7 +180,7 @@ type ChatCompletionChunkChoice struct {
 	FinishReason *string `json:"finish_reason"`
 	// Logprobs contains probabilities for the current token when available.
 	Logprobs *ChatCompletionLogprobs `json:"logprobs,omitzero"`
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -190,7 +192,7 @@ type ControlChatCompletionRequest struct {
 	Action string `json:"action"`
 	// Model selects the instance holding the completion when using a router.
 	Model string `json:"model,omitzero"`
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -200,7 +202,7 @@ type ControlChatCompletionResponse struct {
 	Success bool `json:"success"`
 	// Message explains an unsuccessful action.
 	Message *string `json:"message,omitzero"`
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

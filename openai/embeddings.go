@@ -27,41 +27,58 @@ const embeddingsPath = "/v1/embeddings"
 // EmbeddingRequest requests embeddings from the OpenAI-compatible endpoint.
 // Set Input. For legacy content-only requests, use [llama.Client.Embeddings] instead.
 type EmbeddingRequest struct {
+	// Input supplies a nonempty text, token, or multimodal prompt or batch of prompts to embed.
 	Input llama.EmbeddingInput `json:"input,omitzero"`
 	// Model selects a model in router mode and overrides the model name in the response.
-	Model          string                         `json:"model,omitzero"`
+	Model string `json:"model,omitzero"`
+	// EncodingFormat selects "float" (the default) or "base64" for the returned vectors.
 	EncodingFormat *llama.EmbeddingEncodingFormat `json:"encoding_format,omitzero"`
-	// Normalize sets the llama.cpp normalization for the pooled vectors.
+	// Normalize uses the server default when omitted; -1 disables normalization, 0 uses the maximum absolute value,
+	// and positive p uses the Lp norm.
 	Normalize *int `json:"embd_normalize,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // EmbeddingResponse is the list of embeddings and the total token usage.
 type EmbeddingResponse struct {
-	Object string            `json:"object"`
-	Model  string            `json:"model"`
-	Data   []EmbeddingResult `json:"data"`
-	Usage  EmbeddingUsage    `json:"usage"`
+	// Object is "list" for the response envelope.
+	Object string `json:"object"`
+	// Model echoes the requested model name or reports the server's model name if none was requested.
+	Model string `json:"model"`
+	// Data contains one pooled embedding per input in request order.
+	Data []EmbeddingResult `json:"data"`
+	// Usage counts the tokens evaluated across all inputs in the request.
+	Usage EmbeddingUsage `json:"usage"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // EmbeddingResult is one pooled vector and its index in the response.
 type EmbeddingResult struct {
-	Object         string                         `json:"object"`
-	Index          int                            `json:"index"`
-	Embedding      EmbeddingVector                `json:"embedding"`
+	// Object is "embedding" for each entry in the list.
+	Object string `json:"object"`
+	// Index is the zero-based position of the input that produced this vector.
+	Index int `json:"index"`
+	// Embedding is a float array or a base64 string of float32 values in the server's native byte order.
+	Embedding EmbeddingVector `json:"embedding"`
+	// EncodingFormat is "base64" for a base64 vector and is absent for a float array.
 	EncodingFormat *llama.EmbeddingEncodingFormat `json:"encoding_format,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // EmbeddingUsage counts the input tokens for the whole request.
 type EmbeddingUsage struct {
+	// PromptTokens counts the tokens evaluated across all inputs.
 	PromptTokens int `json:"prompt_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	// TotalTokens equals PromptTokens because embedding requests do not generate tokens.
+	TotalTokens int `json:"total_tokens"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

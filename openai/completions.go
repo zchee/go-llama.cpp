@@ -68,6 +68,7 @@ type CompletionRequest struct {
 
 	llama.SamplingParams
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -94,6 +95,7 @@ type CompletionResponse struct {
 	// Verbose holds the native completion response when SamplingParams.Verbose is set.
 	Verbose jsontext.Value `json:"__verbose,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -108,6 +110,7 @@ type CompletionChoice struct {
 	// FinishReason is "stop" or "length" when generation has finished, or nil in intermediate stream chunks.
 	FinishReason *string `json:"finish_reason"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -116,6 +119,7 @@ type CompletionLogprobs struct {
 	// Content lists the probability report for each generated token.
 	Content []llama.TokenProb `json:"content"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
