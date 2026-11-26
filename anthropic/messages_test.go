@@ -59,6 +59,8 @@ func TestAnthropicMessagesWire(t *testing.T) {
 		"success: count history with tools":     {prefix: "count_tokens/history", count: true},
 		"success: count explicit nulls":         {prefix: "count_tokens/null", count: true},
 		"success: count tool references":        {prefix: "count_tokens/references", count: true},
+		"success: count raw tool result":        {prefix: "count_tokens/raw_result", count: true},
+		"success: count empty tool result":      {prefix: "count_tokens/empty_result", count: true},
 		"error: model cannot read base64 image": {prefix: "messages/image_error", imageError: true},
 		"error: model cannot read URL image":    {prefix: "messages/url_error", imageError: true},
 	}
@@ -114,7 +116,7 @@ func checkAnthropicStream(t *testing.T, data []byte, wantBlocks, wantDeltas []st
 			t.Fatalf("event %d: SSE name does not match payload type %q", i, ev.Type)
 		}
 		want := checkAnthropicWire[MessageEvent](t, frames[i].Data)
-		if diff := gocmp.Diff(want, ev, gocmp.AllowUnexported(Content{})); diff != "" {
+		if diff := gocmp.Diff(want, ev, gocmp.AllowUnexported(Content{}, ContentBlock{})); diff != "" {
 			t.Errorf("stream versus JSON decoder (-want +got):\n%s", diff)
 		}
 		eventTypes = append(eventTypes, ev.Type)
@@ -193,15 +195,20 @@ func TestAnthropicNewRequest(t *testing.T) {
 func TestAnthropicContent(t *testing.T) {
 	tests := map[string]struct {
 		input   string
-		want    Content
+		want    *Content
 		invalid bool
 	}{
-		"success: empty text":    {input: `""`, want: TextContent("")},
-		"success: empty array":   {input: `[]`, want: BlocksContent()},
-		"success: null":          {input: `null`, want: NullContent()},
-		"success: nested text":   {input: `[{"type":"tool_result","content":"ok"}]`, want: BlocksContent(ContentBlock{Type: "tool_result", Content: TextContent("ok")})},
-		"error: object":          {input: `{}`, invalid: true},
-		"error: malformed block": {input: `[2]`, invalid: true},
+		"success: empty text":          {input: `""`, want: new(TextContent(""))},
+		"success: empty array":         {input: `[]`, want: new(BlocksContent())},
+		"success: null":                {input: `null`, want: new(NullContent())},
+		"success: nested text":         {input: `[{"type":"tool_result","content":"ok"}]`, want: new(BlocksContent(ContentBlock{Type: "tool_result", Content: TextContent("ok")}))},
+		"success: untagged block":      {input: `[{"text":"ignored"}]`, want: new(BlocksContent(ContentBlock{Text: new("ignored")}))},
+		"success: null block":          {input: `[null,{"type":"text","text":"hello"}]`, want: new(BlocksContent(ContentBlock{null: true}, ContentBlock{Type: "text", Text: new("hello")}))},
+		"success: raw object result":   {input: `[{"type":"tool_result","content":{"a":1}}]`},
+		"success: raw number result":   {input: `[{"type":"tool_result","content":17}]`},
+		"success: raw boolean result":  {input: `[{"type":"tool_result","content":false}]`},
+		"success: raw array result":    {input: `[{"type":"tool_result","content":[2,false,[],null]}]`},
+		"error: malformed raw content": {input: `{"a":`, invalid: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -216,8 +223,10 @@ func TestAnthropicContent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diff := gocmp.Diff(tt.want, got, gocmp.AllowUnexported(Content{})); diff != "" {
-				t.Errorf("content (-want +got):\n%s", diff)
+			if tt.want != nil {
+				if diff := gocmp.Diff(*tt.want, got, gocmp.AllowUnexported(Content{}, ContentBlock{})); diff != "" {
+					t.Errorf("content (-want +got):\n%s", diff)
+				}
 			}
 			jsontest.RoundTrip[Content](t, []byte(tt.input))
 		})
@@ -225,7 +234,7 @@ func TestAnthropicContent(t *testing.T) {
 }
 
 func FuzzAnthropicContent(f *testing.F) {
-	for _, name := range []string{"messages/plain", "messages/image_error", "count_tokens/history", "count_tokens/null", "count_tokens/references"} {
+	for _, name := range []string{"messages/plain", "messages/image_error", "count_tokens/history", "count_tokens/null", "count_tokens/references", "count_tokens/raw_result"} {
 		var seed struct {
 			System   jsontext.Value `json:"system"`
 			Messages []struct {
@@ -262,7 +271,7 @@ func FuzzAnthropicContent(f *testing.F) {
 			}
 			return string(b)
 		})
-		if diff := gocmp.Diff(got, back, gocmp.AllowUnexported(Content{}), normalize); diff != "" {
+		if diff := gocmp.Diff(got, back, gocmp.AllowUnexported(Content{}, ContentBlock{}), normalize); diff != "" {
 			t.Fatalf("content changed on round trip (-decoded +redecoded):\n%s", diff)
 		}
 	})

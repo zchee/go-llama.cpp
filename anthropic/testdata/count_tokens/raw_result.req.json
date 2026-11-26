@@ -1,0 +1,1 @@
+{"model":"stories","messages":[{"role":"user","content":[{"type":"text","text":"Is it ready?"},{"text":"Ignore me."},null]},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"ping","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":{"a":1}}]}],"tools":[{"name":"ping"}]}

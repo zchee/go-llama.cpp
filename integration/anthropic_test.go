@@ -16,6 +16,7 @@ package integration
 
 import (
 	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	llama "github.com/zchee/go-llama.cpp"
 	"github.com/zchee/go-llama.cpp/anthropic"
 	"github.com/zchee/go-llama.cpp/integration/harness"
+	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
 var presetAnthropic = &serverPreset{
@@ -63,6 +65,35 @@ func TestAnthropicCountMatchesMessageUsage(t *testing.T) {
 	ex := obs.Exchanges()
 	if len(ex) != 2 || ex[1].Query.Get("autoload") != "false" || ex[1].Header.Get("X-Api-Key") == "" || ex[1].Header.Get("Authorization") != "" {
 		t.Fatal("request options or X-Api-Key header did not reach the server")
+	}
+}
+
+func TestAnthropicRawToolResult(t *testing.T) {
+	c, _ := presetAnthropic.server(t).Client(t, anthropicClientOptions...)
+	client := anthropic.NewClient(c)
+	tests := map[string]struct{ fixture string }{
+		"success: object result with untagged and null blocks": {fixture: "raw_result"},
+		"success: empty string result":                         {fixture: "empty_result"},
+	}
+	var tokenCount int64
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var req anthropic.MessagesRequest
+			if err := json.Unmarshal(jsontest.ReadFile(t, "../anthropic/testdata/count_tokens/"+tt.fixture+".req.json"), &req); err != nil {
+				t.Fatal(err)
+			}
+			count, err := client.CountTokens(t.Context(), &req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count.InputTokens <= 0 {
+				t.Fatalf("input_tokens = %d, want a counted prompt", count.InputTokens)
+			}
+			if tokenCount != 0 && tokenCount != count.InputTokens {
+				t.Errorf("input_tokens = %d, want same total as the other result (%d)", count.InputTokens, tokenCount)
+			}
+			tokenCount = count.InputTokens
+		})
 	}
 }
 

@@ -17,7 +17,6 @@ package anthropic
 import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
-	"fmt"
 	"slices"
 )
 
@@ -30,11 +29,13 @@ type Message struct {
 	Extra   map[string]jsontext.Value `json:",embed"`
 }
 
-// Content holds a string, a list of blocks, or an explicit null. Its zero value omits an optional member.
+// Content holds a string, a list of blocks, an explicit null, or any other JSON value the server
+// tolerates. Its zero value omits an optional member.
 type Content struct {
 	text   *string
 	blocks []ContentBlock
 	null   bool
+	raw    jsontext.Value
 }
 
 // TextContent returns content encoded as one string, including an empty one.
@@ -51,6 +52,10 @@ func BlocksContent(blocks ...ContentBlock) Content {
 // NullContent returns an explicit null instead of omitting the member.
 func NullContent() Content { return Content{null: true} }
 
+// RawContent returns content that encodes v without interpreting it. The server converts a tool
+// result's non-string, non-array content to an empty string.
+func RawContent(v jsontext.Value) Content { return Content{raw: slices.Clone(v)} }
+
 // Text returns the string and whether the content was given in string form.
 func (c Content) Text() (string, bool) {
 	if c.text == nil {
@@ -59,14 +64,17 @@ func (c Content) Text() (string, bool) {
 	return *c.text, true
 }
 
-// Blocks returns the array of blocks, or nil for a non-array value.
+// Blocks returns the typed array of blocks, or nil when content is not a block array.
 func (c Content) Blocks() []ContentBlock { return c.blocks }
 
 // IsNull reports whether the content is explicitly null.
 func (c Content) IsNull() bool { return c.null }
 
+// Raw returns the stored JSON when the content uses the raw form, or nil otherwise.
+func (c Content) Raw() jsontext.Value { return c.raw }
+
 // IsZero reports whether the content is unset.
-func (c Content) IsZero() bool { return c.text == nil && c.blocks == nil && !c.null }
+func (c Content) IsZero() bool { return c.text == nil && c.blocks == nil && !c.null && c.raw == nil }
 
 // MarshalJSONTo encodes the content in its original wire form.
 func (c Content) MarshalJSONTo(enc *jsontext.Encoder) error {
@@ -75,14 +83,17 @@ func (c Content) MarshalJSONTo(enc *jsontext.Encoder) error {
 		return enc.WriteToken(jsontext.String(*c.text))
 	case c.blocks != nil:
 		return json.MarshalEncode(enc, c.blocks)
+	case c.raw != nil:
+		return enc.WriteValue(c.raw)
 	default:
 		return enc.WriteToken(jsontext.Null)
 	}
 }
 
-// UnmarshalJSONFrom decodes a string, an array of blocks, or null.
+// UnmarshalJSONFrom decodes a string, an array of blocks, or null. It preserves other valid
+// JSON as raw content, including arrays that cannot be represented as typed blocks.
 func (c *Content) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	switch kind := dec.PeekKind(); kind {
+	switch dec.PeekKind() {
 	case '"':
 		var s string
 		if err := json.UnmarshalDecode(dec, &s); err != nil {
@@ -90,9 +101,17 @@ func (c *Content) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		}
 		*c = TextContent(s)
 	case '[':
-		var blocks []ContentBlock
-		if err := json.UnmarshalDecode(dec, &blocks); err != nil {
+		raw, err := dec.ReadValue()
+		if err != nil {
 			return err
+		}
+		var blocks []ContentBlock
+		if err := json.Unmarshal(raw, &blocks, dec.Options()); err != nil {
+			if strict, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); strict {
+				return err
+			}
+			*c = RawContent(raw)
+			return nil
 		}
 		*c = Content{blocks: blocks}
 	case 'n':
@@ -101,7 +120,11 @@ func (c *Content) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		}
 		*c = NullContent()
 	default:
-		return fmt.Errorf("anthropic: content must be a string, block array or null, got %s", kind)
+		raw, err := dec.ReadValue()
+		if err != nil {
+			return err
+		}
+		*c = Content{raw: slices.Clone(raw)}
 	}
 	return nil
 }
@@ -109,7 +132,8 @@ func (c *Content) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 // ContentBlock is one block of message content. System instructions use only text blocks.
 type ContentBlock struct {
 	// Type selects text, thinking, image, tool_use, tool_result or a tool_reference inside a result.
-	Type string `json:"type"`
+	// The server skips a block whose type it does not know, an omitted type included.
+	Type string `json:"type,omitzero"`
 	// Text holds a text block's content.
 	Text *string `json:"text,omitzero"`
 	// Thinking holds model reasoning.
@@ -131,6 +155,36 @@ type ContentBlock struct {
 	// ToolName names the deferred tool in a tool_reference.
 	ToolName *string                   `json:"tool_name,omitzero"`
 	Extra    map[string]jsontext.Value `json:",embed"`
+	null     bool
+}
+
+// IsNull reports whether the block represents a null array element ignored by the server.
+func (b ContentBlock) IsNull() bool { return b.null }
+
+// MarshalJSONTo writes the block or its explicit null value.
+func (b ContentBlock) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if b.null {
+		return enc.WriteToken(jsontext.Null)
+	}
+	type wire ContentBlock
+	return json.MarshalEncode(enc, wire(b))
+}
+
+// UnmarshalJSONFrom reads a block and preserves an explicit null instead of replacing it with an object.
+func (b *ContentBlock) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	if dec.PeekKind() == 'n' {
+		if _, err := dec.ReadToken(); err != nil {
+			return err
+		}
+		*b = ContentBlock{null: true}
+		return nil
+	}
+	type wire ContentBlock
+	if err := json.UnmarshalDecode(dec, (*wire)(b)); err != nil {
+		return err
+	}
+	b.null = false
+	return nil
 }
 
 // ImageSource supplies an image by URL or as base64 data.
