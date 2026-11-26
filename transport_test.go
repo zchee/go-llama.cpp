@@ -487,6 +487,11 @@ func TestRetryLoop(t *testing.T) {
 			wantGapMin:   700 * time.Millisecond,
 			wantGapMax:   700 * time.Millisecond,
 		},
+		"success: Retry-After uses the default cap": {
+			policy:       RetryPolicy{MaxAttempts: 2},
+			steps:        []step{{err: errUnavailable, retryable: true, after: retryAfter(http.Header{"Retry-After": {"3600"}})}, {val: "ok"}},
+			wantAttempts: 2, wantVal: "ok", wantGapMin: time.Minute, wantGapMax: time.Minute,
+		},
 		"success: Retry-After is capped by MaxInterval": {
 			policy:       policy,
 			steps:        []step{{err: errUnavailable, retryable: true, after: time.Hour}, {val: "ok"}},

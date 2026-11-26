@@ -297,6 +297,9 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 		last      error
 		permanent bool
 	)
+	if p.MaxInterval <= 0 {
+		p.MaxInterval = backoff.DefaultMaxInterval
+	}
 	op := func() (T, error) {
 		n++
 		v, err := attempt(ctx, n)
@@ -310,11 +313,7 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 		}
 		last = re.err
 		if re.after > 0 {
-			wait := re.after
-			if p.MaxInterval > 0 {
-				wait = min(wait, p.MaxInterval)
-			}
-			return v, &backoff.RetryAfterError{Duration: wait}
+			return v, &backoff.RetryAfterError{Duration: min(re.after, p.MaxInterval)}
 		}
 		return v, err
 	}
@@ -324,9 +323,6 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 		RandomizationFactor: min(max(p.RandomizationFactor, 0), 1),
 		Multiplier:          max(p.Multiplier, 1),
 		MaxInterval:         p.MaxInterval,
-	}
-	if b.MaxInterval <= 0 {
-		b.MaxInterval = backoff.DefaultMaxInterval
 	}
 	v, err := backoff.Retry(ctx, op,
 		backoff.WithBackOff(&cappedBackOff{BackOff: b, limit: b.MaxInterval}),
