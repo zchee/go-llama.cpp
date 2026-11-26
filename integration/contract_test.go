@@ -19,12 +19,17 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/build"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
+	"io"
 	"maps"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -32,6 +37,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	gocmp "github.com/google/go-cmp/cmp"
 
 	llama "github.com/zchee/go-llama.cpp"
 	"github.com/zchee/go-llama.cpp/integration/harness"
@@ -324,15 +331,169 @@ func TestContractFilesUseTypedMethods(t *testing.T) {
 	for _, problem := range unlistedRegistrations(contractRegistrations, files) {
 		t.Error(problem)
 	}
+	pkg, err := build.Default.ImportDir(".", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fset := token.NewFileSet()
-	for _, file := range files {
-		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+	var syntax []*ast.File
+	for _, path := range append(pkg.GoFiles, pkg.TestGoFiles...) {
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
-			t.Fatalf("parsing %s: %v", file, err)
+			t.Fatal(err)
 		}
-		for _, v := range bridgeReferences(fset, f) {
-			t.Errorf("%s: contract files must call typed methods, not the low-level llama.%s", v.pos, v.name)
+		syntax = append(syntax, f)
+	}
+	for _, problem := range contractBridgeChains(t, fset, syntax, files, integrationImporter(t, fset)) {
+		t.Error(problem)
+	}
+}
+
+func integrationImporter(t *testing.T, fset *token.FileSet) types.Importer {
+	t.Helper()
+	// go/importer alone cannot find modules. Resolve their export data with the same workspace as go test.
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-deps", "-test", "-export", "-f", `{{if .Export}}{{.ImportPath}}{{"\t"}}{{.Export}}{{end}}`, ".").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{}
+	for line := range strings.Lines(string(out)) {
+		name, path, _ := strings.Cut(strings.TrimSpace(line), "\t")
+		paths[name] = path
+	}
+	return importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) { return os.Open(paths[path]) })
+}
+
+func contractBridgeChains(t *testing.T, fset *token.FileSet, syntax []*ast.File, roots []string, imp types.Importer) []string {
+	t.Helper()
+	info := &types.Info{Defs: map[*ast.Ident]types.Object{}, Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
+	cfg := types.Config{Importer: imp}
+	pkg, err := cfg.Check("github.com/zchee/go-llama.cpp/integration", fset, syntax, info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseType := pkg.Scope().Lookup("contractCase").Type()
+	fields := caseType.Underlying().(*types.Struct)
+	register := pkg.Scope().Lookup("registerContracts")
+	bodies := map[types.Object]ast.Node{}
+	var problems []string
+	for _, file := range syntax {
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.FuncDecl:
+				bodies[info.Defs[d.Name]] = d.Body
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					if v, ok := spec.(*ast.ValueSpec); ok && len(v.Names) == len(v.Values) {
+						for i, id := range v.Names {
+							bodies[info.Defs[id]] = v.Values[i]
+						}
+					}
+				}
+			}
 		}
+	}
+	for _, file := range syntax {
+		name := fset.Position(file.Pos()).Filename
+		if !slices.Contains(roots, name) {
+			continue
+		}
+		for _, ref := range bridgeReferences(fset, file) {
+			if ref.name == "* (dot import)" {
+				problems = append(problems, ref.pos.String()+": forbidden dot import")
+			}
+		}
+		seen := map[types.Object]bool{}
+		var walk func(ast.Node, string)
+		walk = func(body ast.Node, chain string) {
+			ast.Inspect(body, func(n ast.Node) bool {
+				if lit, ok := n.(*ast.CompositeLit); ok && types.Identical(info.TypeOf(lit), caseType) {
+					// Server presets and options are not callbacks; exclude their initializers.
+					for i, elem := range lit.Elts {
+						if kv, ok := elem.(*ast.KeyValueExpr); ok {
+							if kv.Key.(*ast.Ident).Name == "call" {
+								walk(kv.Value, chain)
+							}
+						} else if fields.Field(i).Name() == "call" {
+							walk(elem, chain)
+						}
+					}
+					return false
+				}
+				id, ok := n.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				obj := info.Uses[id]
+				if fn, ok := obj.(*types.Func); ok {
+					if fn.Pkg() != nil && fn.Pkg().Path() == "github.com/zchee/go-llama.cpp" && fn.Signature().Recv() == nil && slices.Contains(lowLevelBridge, fn.Name()) {
+						problems = append(problems, chain+" -> llama."+fn.Name())
+						return true
+					}
+					obj = fn.Origin()
+				}
+				if child := bodies[obj]; child != nil && !seen[obj] {
+					seen[obj] = true
+					label := obj.Name()
+					if fn, ok := obj.(*types.Func); ok && fn.Signature().Recv() != nil {
+						label = "(" + types.TypeString(fn.Signature().Recv().Type(), func(*types.Package) string { return "" }) + ")." + label
+					}
+					walk(child, chain+" -> "+label)
+				}
+				return true
+			})
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := call.Fun.(*ast.Ident); ok && info.Uses[id] == register {
+				for _, arg := range call.Args {
+					walk(arg, name)
+				}
+			}
+			return true
+		})
+	}
+	slices.Sort(problems)
+	return problems
+}
+
+func TestContractBridgeChains(t *testing.T) {
+	const root = "contract_sample_test.go"
+	const helpers = `package integration
+import l "github.com/zchee/go-llama.cpp"
+type runner struct{}
+type clean struct{}
+func (runner) invoke() { _ = l.CallRaw }
+func (clean) invoke() {}
+func indirect() { runner{}.invoke() }
+func unused() { _ = l.Stream[int] }
+`
+	fset := token.NewFileSet()
+	imp := integrationImporter(t, fset)
+	tests := map[string]struct {
+		callback string
+		want     []string
+	}{
+		"error: call through a function and a method":      {"indirect", []string{root + " -> indirect -> (runner).invoke -> llama.CallRaw"}},
+		"success: unrelated helpers and same-named method": {"func() { clean{}.invoke() }", nil},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var syntax []*ast.File
+			for path, src := range map[string]string{root: "package integration\ntype contractCase struct{call func()}\nfunc registerContracts(c contractCase) bool {return true}\nvar _ = registerContracts(contractCase{call:" + tt.callback + "})", "helpers.go": helpers} {
+				f, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
+				if err != nil {
+					t.Fatal(err)
+				}
+				syntax = append(syntax, f)
+			}
+			if diff := gocmp.Diff(tt.want, contractBridgeChains(t, fset, syntax, []string{root}, imp)); diff != "" {
+				t.Errorf("reachable bridges (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
