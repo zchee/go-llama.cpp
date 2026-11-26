@@ -25,7 +25,7 @@ type PropsResponse struct {
 	DefaultGenerationSettings PropsGenerationSettings   `json:"default_generation_settings"`
 	ModelAlias                string                    `json:"model_alias"`
 	ModelPath                 string                    `json:"model_path"`
-	UISettings                map[string]jsontext.Value `json:"ui_settings"`
+	UISettings                jsontext.Value            `json:"ui_settings,omitzero"`
 	BuildInfo                 string                    `json:"build_info"`
 	CORSProxyEnabled          bool                      `json:"cors_proxy_enabled"`
 	UIAgent                   bool                      `json:"ui_agent"`

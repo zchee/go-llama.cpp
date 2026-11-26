@@ -17,6 +17,7 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -112,16 +113,28 @@ func (c *Client) Slots(ctx context.Context, opts ...RequestOption) ([]Slot, erro
 }
 
 // SaveSlot saves the prompt cache of a slot to req.Filename on the server.
+//
+// Negative slot ids are rejected before sending a request because the server converts negative ids to unsigned and
+// wraps modulo the slot count. An out-of-range non-negative id wraps around the server's slot count; the client
+// cannot know the count.
 func (c *Client) SaveSlot(ctx context.Context, id int, req *SlotFileRequest, opts ...RequestOption) (*SlotSaveResponse, error) {
 	return slotsAction[*SlotSaveResponse](ctx, c, id, "save", req, opts)
 }
 
 // RestoreSlot restores a slot's prompt cache from req.Filename on the server.
+//
+// Negative slot ids are rejected before sending a request because the server converts negative ids to unsigned and
+// wraps modulo the slot count. An out-of-range non-negative id wraps around the server's slot count; the client
+// cannot know the count.
 func (c *Client) RestoreSlot(ctx context.Context, id int, req *SlotFileRequest, opts ...RequestOption) (*SlotRestoreResponse, error) {
 	return slotsAction[*SlotRestoreResponse](ctx, c, id, "restore", req, opts)
 }
 
 // EraseSlot removes the cached tokens of a slot. Pass nil for a single-model server.
+//
+// Negative slot ids are rejected before sending a request because the server converts negative ids to unsigned and
+// wraps modulo the slot count. An out-of-range non-negative id wraps around the server's slot count; the client
+// cannot know the count.
 func (c *Client) EraseSlot(ctx context.Context, id int, req *SlotEraseRequest, opts ...RequestOption) (*SlotEraseResponse, error) {
 	if req == nil {
 		return slotsAction[*SlotEraseResponse](ctx, c, id, "erase", nil, opts)
@@ -130,6 +143,10 @@ func (c *Client) EraseSlot(ctx context.Context, id int, req *SlotEraseRequest, o
 }
 
 func slotsAction[T any](ctx context.Context, c *Client, id int, action string, body any, opts []RequestOption) (T, error) {
+	if id < 0 {
+		var zero T
+		return zero, fmt.Errorf("llama: negative slot id %d (slot ids must be non-negative; the server converts negative ids to unsigned and wraps modulo the slot count)", id)
+	}
 	// A caller-supplied generic query option must not change which operation a typed method performs.
 	opts = append(slices.Clip(opts), func(rc *requestConfig) {
 		if rc.query == nil {

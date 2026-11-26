@@ -15,9 +15,12 @@
 package integration
 
 import (
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"iter"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -176,5 +179,98 @@ func TestCompletionMediaRefusal(t *testing.T) {
 	e, ok := errors.AsType[*llama.APIError](err)
 	if !ok || e.Type != llama.ErrorTypeInvalidRequest {
 		t.Fatalf("media on a text-only model: %v", err)
+	}
+}
+
+func TestSlotsNegativeIDNoRequest(t *testing.T) {
+	c, obs := slotsPreset.server(t).Client(t)
+	ctx := t.Context()
+
+	tests := map[string]struct {
+		call func() error
+	}{
+		"error: SaveSlot negative id": {
+			call: func() error {
+				_, err := c.SaveSlot(ctx, -1, &llama.SlotFileRequest{Filename: "negative.bin"})
+				return err
+			},
+		},
+		"error: RestoreSlot negative id": {
+			call: func() error {
+				_, err := c.RestoreSlot(ctx, -1, &llama.SlotFileRequest{Filename: "negative.bin"})
+				return err
+			},
+		},
+		"error: EraseSlot negative id": {
+			call: func() error {
+				_, err := c.EraseSlot(ctx, -1, nil)
+				return err
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			obs.Reset()
+			err := tt.call()
+			if err == nil {
+				t.Fatal("expected error for negative slot id")
+			}
+			if !strings.Contains(err.Error(), "non-negative") {
+				t.Errorf("error %q does not explain that slot id must be non-negative", err)
+			}
+			if ex := obs.Exchanges(); len(ex) != 0 {
+				t.Fatalf("negative slot id sent %d HTTP request(s): %+v", len(ex), ex)
+			}
+		})
+	}
+}
+
+func TestPropsUISettingsVariants(t *testing.T) {
+	model := harness.Model(t, "stories260K")
+	tests := map[string]struct {
+		uiConfig string
+	}{
+		"success: array":  {uiConfig: `[]`},
+		"success: null":   {uiConfig: `null`},
+		"success: object": {uiConfig: `{"theme":"dark"}`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := harness.StartT(t, harness.Options{
+				Model: model,
+				Args:  []string{"--ctx-size", "256", "--seed", "42", "--ui-config", tt.uiConfig},
+			})
+			c, _ := srv.Client(t)
+			props, err := c.Props(t.Context())
+			if err != nil {
+				t.Fatalf("Props with --ui-config %s: %v", tt.uiConfig, err)
+			}
+			rawUI, err := json.Marshal(props.UISettings)
+			if err != nil {
+				t.Fatalf("encoding ui_settings: %v", err)
+			}
+			got := jsontext.Value(rawUI)
+			if err := got.Canonicalize(); err != nil {
+				t.Fatalf("canonicalizing ui_settings %q: %v", got, err)
+			}
+			want := jsontext.Value(tt.uiConfig)
+			if err := want.Canonicalize(); err != nil {
+				t.Fatalf("canonicalizing want %q: %v", want, err)
+			}
+			if string(got) != string(want) {
+				t.Errorf("UISettings = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestPropsVoices(t *testing.T) {
+	c, _ := presetRealtimeOmni.server(t).Client(t)
+	props, err := c.Props(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"female", "male"}; !slices.Equal(props.Voices, want) {
+		t.Errorf("Voices = %v, want %v", props.Voices, want)
 	}
 }
