@@ -35,15 +35,7 @@ func TestMessagesStreamFixtureCuts(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			data := jsontest.ReadFile(t, tt.fixture)
-			var cuts [][]byte
-			for i := 0; i+1 < len(data); i++ {
-				if data[i] == '\n' && data[i+1] == '\n' {
-					cuts = append(cuts, data[:i+2])
-				}
-			}
-			if len(cuts) == 0 || len(cuts[len(cuts)-1]) != len(data) {
-				t.Fatalf("recorded stream has %d frame boundaries and %d trailing bytes", len(cuts), len(data))
-			}
+			cuts := jsontest.StreamFrameCuts(t, data)
 			for _, err := range llama.DecodeEndpointStream[MessageEvent](bytes.NewReader(cuts[0]), 0, "/v1/messages", 0) {
 				if err != nil {
 					t.Fatal(err)
