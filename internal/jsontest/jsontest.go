@@ -445,32 +445,20 @@ func walkExtra(v reflect.Value, path string, fn func(path string, keys []string)
 			walkExtra(v.MapIndex(k), path+"/"+escapePointer(k.String()), fn)
 		}
 	case reflect.Struct:
-		if customCodec(v.Type()) {
-			walkOpaque(v, path, fn)
-			return
-		}
 		walkStruct(v, path, fn)
-	}
-}
-
-// walkOpaque descends into every field of a type with its own JSON methods, such as a sum type that keeps its
-// branches in unexported fields. Such a type encodes one of its fields at its own position, so the fields add no
-// path segment; a slice field (the elements of an array form) adds the element index.
-func walkOpaque(v reflect.Value, path string, fn func(path string, keys []string)) {
-	for _, field := range v.Fields() {
-		walkExtra(field, path, fn)
 	}
 }
 
 func walkStruct(v reflect.Value, path string, fn func(path string, keys []string)) {
 	t := v.Type()
+	opaque := customCodec(t)
 	for i := range t.NumField() {
 		f := t.Field(i)
 		fv := v.Field(i)
 		tag := f.Tag.Get("json")
 		name, opts, _ := strings.Cut(tag, ",")
 		switch {
-		case name == "-" && opts == "":
+		case !opaque && name == "-" && opts == "":
 			continue
 		case hasOption(opts, "embed") && isFallback(f.Type):
 			if fv.Len() > 0 {
@@ -481,6 +469,9 @@ func walkStruct(v reflect.Value, path string, fn func(path string, keys []string
 				sort.Strings(keys)
 				fn(path, keys)
 			}
+		case opaque:
+			// A sum codec can encode even a private branch at the object's own position.
+			walkExtra(fv, path, fn)
 		case !f.IsExported() && !f.Anonymous:
 			continue
 		case f.Anonymous && name == "", hasOption(opts, "embed"):
@@ -594,6 +585,7 @@ func checkStruct(t reflect.Type, path string, seen, exempt map[reflect.Type]bool
 			}
 			inlining[ft] = true
 			n, nested := checkStruct(ft, path, seen, exempt, problems, inlining)
+			delete(inlining, ft)
 			if n > 0 {
 				inlined = append(inlined, ft.String())
 			}

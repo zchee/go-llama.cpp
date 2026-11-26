@@ -88,6 +88,24 @@ type onlyEmbeddedFallback struct {
 	C int `json:"c"`
 }
 
+type fallback struct {
+	Extra map[string]jsontext.Value `json:",embed"`
+}
+type (
+	left    struct{ fallback }
+	right   struct{ fallback }
+	diamond struct {
+		left
+		right
+	}
+)
+
+type opaqueRecord goodInner
+
+func (r *opaqueRecord) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	return json.UnmarshalDecode(dec, (*goodInner)(r))
+}
+
 type wrongFallback struct {
 	Extra jsontext.Value `json:",embed"`
 }
@@ -173,6 +191,10 @@ func TestCheckFallbacks(t *testing.T) {
 		"error: embedded fallback shadowed by the parent": {
 			check: func(tb testing.TB) { CheckFallbacks[shadowed](tb) },
 			want:  []string{"embeds jsontest.SharedWithExtra, whose own fallback is shadowed"},
+		},
+		"error: sibling embeddings share a fallback": {
+			check: func(tb testing.TB) { CheckFallbacks[diamond](tb) },
+			want:  []string{"has more than one fallback"},
 		},
 		"error: fallback of the wrong type": {
 			check: func(tb testing.TB) { CheckFallbacks[wrongFallback](tb) },
@@ -268,6 +290,10 @@ func TestNoUnknownSeesInsideOpaqueTypes(t *testing.T) {
 		check func(tb testing.TB)
 		want  string
 	}{
+		"error: record codec owns its fallback": {
+			check: func(tb testing.TB) { NoUnknown[opaqueRecord](tb, []byte(`{"future":1}`), nil) },
+			want:  "/: future",
+		},
 		"error: unknown member in the object branch": {
 			check: func(tb testing.TB) { NoUnknown[opaque](tb, []byte(`{"b":"x","future":1}`), nil) },
 			want:  "/: future",
