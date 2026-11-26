@@ -13,6 +13,16 @@
 // limitations under the License.
 
 // Package extraguard checks for conflicts between typed fields and extra request members.
+// It starts at a struct, following non-nil pointers and interfaces to their values.
+// Within the struct it checks the selected JSON fields, flattening embedded structs,
+// and follows nested objects through pointers, interfaces, slice and array elements,
+// and map values (not keys). It compares exact names, including those of unset fields.
+// For structs with a MarshalJSONTo method on the value or pointer, it also visits
+// private fields that can contain objects, since the method can encode those children.
+// It does not execute custom codecs or infer names they synthesize; other JSON methods
+// do not make private fields visible to the check. Fields tagged json:"-" are ignored.
+// Nil values, top-level collections, and raw JSON (jsontext.Value) are left alone;
+// callers pass raw HTTP bodies directly to the transport without calling Check.
 package extraguard
 
 import (
@@ -79,6 +89,9 @@ func walkRequest(v reflect.Value, parent *requestVisit, root bool) error {
 	case reflect.Pointer, reflect.Interface:
 		return walkRequest(v.Elem(), parent, root)
 	case reflect.Slice, reflect.Array:
+		if v.Type() == reflect.TypeFor[jsontext.Value]() {
+			return nil
+		}
 		for i := range v.Len() {
 			if err := walkRequest(v.Index(i), parent, false); err != nil {
 				return err
@@ -143,6 +156,10 @@ func requestFieldsFor(t reflect.Type) *requestFields {
 			fields.children = append(fields.children, member.path)
 		}
 	}
+	// reflect.StructOf can create arbitrarily many distinct unnamed request types.
+	if t.Name() == "" {
+		return fields
+	}
 	cached, _ := requestTypes.LoadOrStore(t, fields)
 	return cached.(*requestFields)
 }
@@ -173,7 +190,7 @@ func (fields *requestFields) collect(t reflect.Type, path []int, parents []refle
 		index := append(slices.Clone(path), sf.Index[0])
 		if !sf.IsExported() && !sf.Anonymous {
 			// The library's sum types marshal children stored in private fields (e.g. Prompt.object).
-			if t.Implements(reflect.TypeFor[json.MarshalerTo]()) && mayContainRequest(sf.Type) {
+			if reflect.PointerTo(t).Implements(reflect.TypeFor[json.MarshalerTo]()) && mayContainRequest(sf.Type) {
 				fields.children = append(fields.children, index)
 			}
 			continue

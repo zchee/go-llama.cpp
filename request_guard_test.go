@@ -100,6 +100,35 @@ func TestRequestExtra(t *testing.T) {
 	}
 }
 
+type valueCodec struct{ child PromptObject }
+
+func (v valueCodec) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return json.MarshalEncode(enc, v.child)
+}
+
+type pointerCodec struct{ child PromptObject }
+
+func (v *pointerCodec) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return json.MarshalEncode(enc, v.child)
+}
+
+func TestRequestExtraPrivateCodecChild(t *testing.T) {
+	child := PromptObject{Extra: map[string]jsontext.Value{"multimodal_data": jsontext.Value(`[]`)}}
+	tests := map[string]struct{ body any }{
+		"error: addressable value receiver":      {&valueCodec{child}},
+		"error: nonaddressable value receiver":   {valueCodec{child}},
+		"error: addressable pointer receiver":    {&pointerCodec{child}},
+		"error: nonaddressable pointer receiver": {pointerCodec{child}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := extraguard.Check(tt.body); err == nil || !strings.Contains(err.Error(), `contains "multimodal_data"`) {
+				t.Errorf("Check(%T) = %v, want a private child's extra-member conflict", tt.body, err)
+			}
+		})
+	}
+}
+
 func TestRequestExtraCycle(t *testing.T) {
 	type node struct {
 		Next  *node
