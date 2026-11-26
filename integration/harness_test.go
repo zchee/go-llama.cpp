@@ -15,15 +15,21 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json/jsontext"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
+
+	gocmp "github.com/google/go-cmp/cmp"
 
 	llama "github.com/zchee/go-llama.cpp"
 	"github.com/zchee/go-llama.cpp/integration/harness"
@@ -159,7 +165,7 @@ func TestStartFailsFast(t *testing.T) {
 }
 
 // TestRouterModeHidesLocalPaths starts a server in router mode on a directory holding the test model and checks
-// that the model list it returns names no local directory.
+// that the model list it returns names no local directory other than the path of the server binary itself.
 func TestRouterModeHidesLocalPaths(t *testing.T) {
 	model := harness.Model(t, "stories260K")
 	dir := t.TempDir()
@@ -175,10 +181,130 @@ func TestRouterModeHidesLocalPaths(t *testing.T) {
 	if !strings.Contains(string(models), "stories260K") {
 		t.Errorf("router lists no stories260K model: %s", models)
 	}
-	for _, local := range []string{dir, filepath.Dir(model), os.Getenv("HOME")} {
-		if local != "" && strings.Contains(string(models), local) {
-			t.Errorf("GET /models reveals the local path %s: %s", local, models)
+	// The server reports its own path with the symbolic links resolved.
+	bin, err := exec.LookPath(harness.Bin())
+	if err == nil {
+		bin, err = filepath.EvalSymlinks(bin)
+	}
+	if err != nil {
+		t.Fatalf("resolving the server binary: %v", err)
+	}
+	for _, leak := range localPathLeaks(t, models, bin, []string{dir, filepath.Dir(model), os.Getenv("HOME")}) {
+		t.Errorf("GET /models reveals the local path %s: %s", leak, models)
+	}
+}
+
+// routerExecutable matches the JSON Pointer of the first command-line argument of a model in the router's model
+// list. A pointer does not tell an array index from a member named like one, so localPathLeaks also checks
+// that data and args are arrays.
+var routerExecutable = regexp.MustCompile(`^/data/[0-9]+/status/args/0$`)
+
+// localPathLeaks returns one "path at JSON Pointer" entry for every string of the model list, member names
+// included, that contains one of the local paths. The router starts each model as a child of its own executable
+// and reports that command line, so the first argument is exempt when it is exactly bin, the server binary.
+func localPathLeaks(t *testing.T, models jsontext.Value, bin string, locals []string) []string {
+	t.Helper()
+	var leaks []string
+	dec := jsontext.NewDecoder(bytes.NewReader(models))
+	for {
+		tok, err := dec.ReadToken()
+		if errors.Is(err, io.EOF) {
+			return leaks
 		}
+		if err != nil {
+			t.Fatalf("decoding the model list: %v", err)
+		}
+		if tok.Kind() != jsontext.KindString {
+			continue
+		}
+		value, at := tok.String(), string(dec.StackPointer())
+		if value == bin && routerExecutable.MatchString(at) {
+			data, _ := dec.StackIndex(2)
+			args, _ := dec.StackIndex(5)
+			if data == jsontext.KindBeginArray && args == jsontext.KindBeginArray {
+				continue
+			}
+		}
+		for _, local := range locals {
+			if local != "" && strings.Contains(value, local) {
+				leaks = append(leaks, local+" at "+at)
+			}
+		}
+	}
+}
+
+// TestLocalPathLeaks checks the exemption of localPathLeaks: only the server binary, and only as the first
+// argument of a model, may be a local path.
+func TestLocalPathLeaks(t *testing.T) {
+	const (
+		home     = "/home/u"
+		modelDir = "/var/cache/models"
+		bin      = home + "/bin/llama-server"
+	)
+	list := func(status string) jsontext.Value {
+		return jsontext.Value(`{"data":[{"id":"m","status":` + status + `}],"object":"list"}`)
+	}
+	tests := map[string]struct {
+		models jsontext.Value
+		want   []string
+	}{
+		"success: relative paths only": {
+			models: list(`{"args":["llama-server","--model","models-dir/m.gguf"],"preset":"model = models-dir/m.gguf\n"}`),
+		},
+		"success: server binary as the first argument": {
+			models: list(`{"args":["` + bin + `","--model","models-dir/m.gguf"]}`),
+		},
+		"error: home in a later argument": {
+			models: list(`{"args":["` + bin + `","--model","` + home + `/m.gguf"]}`),
+			want:   []string{home + " at /data/0/status/args/2"},
+		},
+		"error: model directory in a later argument": {
+			models: list(`{"args":["` + bin + `","--model","` + modelDir + `/m.gguf"]}`),
+			want:   []string{modelDir + " at /data/0/status/args/2"},
+		},
+		"error: model directory in the preset": {
+			models: list(`{"args":["` + bin + `"],"preset":"model = ` + modelDir + `/m.gguf\n"}`),
+			want:   []string{modelDir + " at /data/0/status/preset"},
+		},
+		"error: server binary in a later argument": {
+			models: list(`{"args":["` + bin + `","` + bin + `"]}`),
+			want:   []string{home + " at /data/0/status/args/1"},
+		},
+		"error: server binary outside the arguments": {
+			models: list(`{"args":["` + bin + `"],"path":"` + bin + `"}`),
+			want:   []string{home + " at /data/0/status/path"},
+		},
+		"error: first argument is another file under home": {
+			models: list(`{"args":["` + home + `/bin/other-server"]}`),
+			want:   []string{home + " at /data/0/status/args/0"},
+		},
+		"error: first argument only starts with the server binary": {
+			models: list(`{"args":["` + bin + `.sh"]}`),
+			want:   []string{home + " at /data/0/status/args/0"},
+		},
+		"error: first argument of something other than a model": {
+			models: jsontext.Value(`{"status":{"args":["` + bin + `"]}}`),
+			want:   []string{home + " at /status/args/0"},
+		},
+		"error: models keyed by a member named like an index": {
+			models: jsontext.Value(`{"data":{"0":{"status":{"args":["` + bin + `"]}}}}`),
+			want:   []string{home + " at /data/0/status/args/0"},
+		},
+		"error: arguments keyed by a member named like an index": {
+			models: list(`{"args":{"0":"` + bin + `"}}`),
+			want:   []string{home + " at /data/0/status/args/0"},
+		},
+		"error: home in a member name": {
+			models: list(`{"` + home + `/m.gguf":true}`),
+			want:   []string{home + " at /data/0/status/" + strings.ReplaceAll(home, "/", "~1") + "~1m.gguf"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if diff := gocmp.Diff(tt.want, localPathLeaks(t, tt.models, bin, []string{modelDir, "", home})); diff != "" {
+				t.Errorf("localPathLeaks mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
