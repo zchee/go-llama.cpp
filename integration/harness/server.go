@@ -310,6 +310,12 @@ func (s *Server) Stop() error {
 		case <-s.done:
 			timer.Stop()
 		case <-timer.C:
+			// Start can fail before it records s.pid. The server group is separate from the supervisor's.
+			if data, err := os.ReadFile(filepath.Join(s.dir, pidFile)); err == nil {
+				if pid, err := strconv.Atoi(string(data)); err == nil && pid > 1 {
+					killGroup(pid)
+				}
+			}
 			killGroup(s.cmd.Process.Pid)
 			<-s.done
 			s.stopErr = errors.New("harness: the llama-server supervisor did not exit and its process group was killed")

@@ -61,6 +61,7 @@ func supervise(argv []string) int {
 		return 2
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.SysProcAttr = sysProcAttr()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, envSupervise+"=") })
@@ -68,6 +69,8 @@ func supervise(argv []string) int {
 		fmt.Fprintf(os.Stderr, "harness supervisor: starting %s: %v\n", argv[0], err)
 		return 127
 	}
+	// A router can exit before its model processes. Clean up any remaining group members on every exit.
+	defer killDescendants(cmd.Process.Pid)
 	if err := writePID(cmd.Process.Pid); err != nil {
 		fmt.Fprintf(os.Stderr, "harness supervisor: %v\n", err)
 	}
@@ -99,7 +102,7 @@ func supervise(argv []string) int {
 	case <-exited:
 		timer.Stop()
 	case <-timer.C:
-		_ = cmd.Process.Kill()
+		killGroup(cmd.Process.Pid)
 		<-exited
 		code = exitKilled
 	}

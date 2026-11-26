@@ -18,11 +18,12 @@ package harness
 
 import "syscall"
 
-// sysProcAttr puts the supervisor in a process group of its own, which llama-server inherits, so that killGroup
-// reaches both and a terminal interrupt aimed at the test does not.
+// sysProcAttr isolates each process group from terminal interrupts and from signals to the other group.
 func sysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setpgid: true}
 }
+
+func killDescendants(pid int) { killGroup(pid) }
 
 // killGroup kills the process group led by pid.
 func killGroup(pid int) {

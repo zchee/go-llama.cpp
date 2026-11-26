@@ -26,7 +26,10 @@ func sysProcAttr() *syscall.SysProcAttr {
 	return nil
 }
 
-// killGroup kills the supervisor only where process groups are not available.
+// The process was already reaped; without process groups its descendants cannot be addressed.
+func killDescendants(int) {}
+
+// killGroup kills the immediate process where process groups are not available.
 func killGroup(pid int) {
 	if p, err := os.FindProcess(pid); err == nil {
 		_ = p.Kill()
