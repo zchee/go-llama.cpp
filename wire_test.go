@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"reflect"
+	"strings"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -132,6 +134,8 @@ func TestPromptJSONErrors(t *testing.T) {
 		"error: float token":               `[1.5,2]`,
 		"error: batch element of strings":  `[["a","b"]]`,
 		"error: batch element of a number": `["a",true]`,
+		"error: null batch element":        `["x",null]`,
+		"error: only a null element":       `[null]`,
 	}
 	for name, in := range unmarshal {
 		t.Run(name, func(t *testing.T) {
@@ -150,19 +154,36 @@ func TestLogitBiasJSON(t *testing.T) {
 	}{
 		"success: array form with ban and text": {
 			bias: LogitBiasArray(
-				LogitBiasEntry{Token: 15043, Bias: 1.5},
-				LogitBiasEntry{Text: "Hello, World!", Bias: -0.5},
-				LogitBiasEntry{Token: 2, Ban: true},
+				LogitBiasEntry{Target: TokenTarget(15043), Bias: 1.5},
+				LogitBiasEntry{Target: TextTarget("Hello, World!"), Bias: -0.5},
+				LogitBiasEntry{Target: TokenTarget(2), Ban: true},
 			),
 			json: `[[15043,1.5],["Hello, World!",-0.5],[2,false]]`,
 		},
 		"success: object form keeps order": {
 			bias: LogitBiasObject(
-				LogitBiasEntry{Token: 30, Bias: 2},
-				LogitBiasEntry{Text: "Hello", Ban: true},
-				LogitBiasEntry{Token: 1, Bias: -100},
+				LogitBiasEntry{Target: TokenTarget(30), Bias: 2},
+				LogitBiasEntry{Target: TextTarget("Hello"), Ban: true},
+				LogitBiasEntry{Target: TokenTarget(1), Bias: -100},
 			),
 			json: `{"30":2,"Hello":false,"1":-100}`,
+		},
+		"success: empty string target stays a string": {
+			bias: LogitBiasArray(LogitBiasEntry{Target: TextTarget(""), Bias: 1}),
+			json: `[["",1]]`,
+		},
+		"success: token 0 stays a token": {
+			bias: LogitBiasArray(LogitBiasEntry{Target: TokenTarget(0), Bias: 1}),
+			json: `[[0,1]]`,
+		},
+		"success: object keys keep their spelling": {
+			bias: LogitBiasObject(
+				LogitBiasEntry{Target: TextTarget("01"), Bias: 1},
+				LogitBiasEntry{Target: TokenTarget(1), Bias: 2},
+				LogitBiasEntry{Target: TextTarget("+1"), Bias: 3},
+				LogitBiasEntry{Target: TokenTarget(-1), Bias: 4},
+			),
+			json: `{"01":1,"1":2,"+1":3,"-1":4}`,
 		},
 		"success: empty object": {bias: LogitBiasObject(), json: `{}`},
 		"success: empty array":  {bias: LogitBiasArray(), json: `[]`},
@@ -188,7 +209,22 @@ func TestLogitBiasJSON(t *testing.T) {
 			}
 		})
 	}
+	if out, err := json.Marshal(LogitBiasObject(
+		LogitBiasEntry{Target: TokenTarget(1), Bias: 1},
+		LogitBiasEntry{Target: TextTarget("1"), Bias: 2},
+	)); err == nil {
+		t.Errorf("Marshal of two entries spelling the member \"1\" succeeded: %s", out)
+	}
+	tok, isTok := TokenTarget(7).Token()
+	text, isText := TextTarget("x").Text()
+	if tok != 7 || !isTok || text != "x" || !isText {
+		t.Errorf("target accessors: %d %t %q %t", tok, isTok, text, isText)
+	}
+	if _, ok := TokenTarget(7).Text(); ok {
+		t.Errorf("a token target reports a text")
+	}
 	for name, in := range map[string]string{
+		"error: duplicate member":   `{"1":1,"1":2}`,
 		"error: true is not a bias": `{"1":true}`,
 		"error: pair of three":      `[[1,2,3]]`,
 		"error: target object":      `[[{},1]]`,
@@ -254,24 +290,24 @@ type samplingRequest struct {
 
 func TestSamplingParamsEmbedding(t *testing.T) {
 	req := samplingRequest{
-		Prompt:          TextPrompt("Building a website can be done in"),
-		Temperature:     new(0.0),
-		NPredict:        new(0),
-		CachePrompt:     new(false),
-		Stop:            StringSlice("\n"),
-		LogitBias:       LogitBiasObject(LogitBiasEntry{Token: 1, Bias: -1}),
-		SpeculativeNMax: new(8),
-		LoRA:            []LoRAWeight{{ID: 0, Scale: 0.5}},
-		JSONSchema:      jsontext.Value(`{"type":"object"}`),
-		Extra:           map[string]jsontext.Value{"future_param": jsontext.Value(`[1]`)},
+		Prompt:      TextPrompt("Building a website can be done in"),
+		Temperature: new(0.0),
+		NPredict:    new(0),
+		CachePrompt: new(false),
+		Stop:        StringSlice("\n"),
+		LogitBias:   LogitBiasObject(LogitBiasEntry{Target: TokenTarget(1), Bias: -1}),
+		Samplers:    StringValue("kpt"),
+		LoRA:        []LoRAWeight{{ID: 0, Scale: 0.5}},
+		JSONSchema:  jsontext.Value(`{"type":"object"}`),
+		Extra:       map[string]jsontext.Value{"future_param": jsontext.Value(`[1]`)},
 	}
 	got, err := json.Marshal(req, jsonOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const want = `{"prompt":"Building a website can be done in","n_predict":0,"cache_prompt":false,"temperature":0,` +
-		`"logit_bias":{"1":-1},"stop":["\n"],"json_schema":{"type":"object"},"lora":[{"id":0,"scale":0.5}],` +
-		`"speculative.n_max":8,"future_param":[1]}`
+		`"samplers":"kpt","logit_bias":{"1":-1},"stop":["\n"],"json_schema":{"type":"object"},` +
+		`"lora":[{"id":0,"scale":0.5}],"future_param":[1]}`
 	if string(got) != want {
 		t.Errorf("Marshal =\n%s\nwant\n%s", got, want)
 	}
@@ -332,7 +368,7 @@ func TestSharedResponseTypes(t *testing.T) {
 func FuzzPrompt(f *testing.F) {
 	for _, seed := range []string{
 		`"text"`, `[1,2,3]`, `[1,"a",2]`, `{"prompt_string":"x","multimodal_data":["AA=="]}`,
-		`["a",[1,2],{"prompt_string":"b"}]`, `[]`, `null`, `[[1,"a"]]`,
+		`["a",[1,2],{"prompt_string":"b"}]`, `[]`, `null`, `[[1,"a"]]`, `["x",null]`, `[null]`,
 	} {
 		f.Add(seed)
 	}
@@ -343,9 +379,6 @@ func FuzzPrompt(f *testing.F) {
 		}
 		out, err := json.Marshal(p, jsonOptions)
 		if err != nil {
-			if p.Kind() == PromptKindMixed || p.Kind() == PromptKindBatch || p.IsZero() {
-				return
-			}
 			t.Fatalf("decoded %s but cannot encode it: %v", in, err)
 		}
 		var back Prompt
@@ -359,7 +392,9 @@ func FuzzPrompt(f *testing.F) {
 }
 
 func FuzzLogitBias(f *testing.F) {
-	for _, seed := range []string{`[[1,2.5],["x",false]]`, `{"1":-1,"y":false}`, `[]`, `{}`} {
+	for _, seed := range []string{
+		`[[1,2.5],["x",false]]`, `{"1":-1,"y":false}`, `[]`, `{}`, `[["",1]]`, `{"01":1,"1":2}`, `{"-0":1,"+5":2}`,
+	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, in string) {
@@ -375,10 +410,76 @@ func FuzzLogitBias(f *testing.F) {
 		if err := json.Unmarshal(out, &back); err != nil {
 			t.Fatalf("re-decoding %s: %v", out, err)
 		}
-		// An object key that spells a token id decodes as that token; compare through the encoding.
+		if !b.Equal(back) {
+			t.Fatalf("round trip changed the bias: %s -> %s", in, out)
+		}
+		// The encoding must say what the input said: a string target stays a string, a key keeps its spelling.
+		jsontest.RoundTrip[LogitBias](t, []byte(in))
 		again, err := json.Marshal(back)
 		if err != nil || !bytes.Equal(again, out) {
-			t.Fatalf("round trip changed the bias: %s -> %s -> %s", in, out, again)
+			t.Fatalf("re-encoding changed the bias: %s -> %s -> %s", in, out, again)
 		}
 	})
+}
+
+// The server accepts "samplers" as an array of names or as a string of sampler characters
+// (tools/server/server-schema.cpp of llama.cpp v1.1.0).
+func TestSamplersForms(t *testing.T) {
+	tests := map[string]struct {
+		json string
+		want StringOrSlice
+	}{
+		"success: compact string": {json: `{"samplers":"kpt"}`, want: StringValue("kpt")},
+		"success: names":          {json: `{"samplers":["top_k","top_p"]}`, want: StringSlice("top_k", "top_p")},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := jsontest.RoundTrip[samplingRequest](t, []byte(tt.json))
+			if diff := gocmp.Diff(tt.want, got.Samplers); diff != "" {
+				t.Errorf("Samplers (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// The speculative.* request fields are compiled out of the server's request schema at v1.1.0, so the request type
+// does not offer them; a member sent anyway is kept as an unknown member.
+func TestSamplingParamsHasNoIgnoredSpeculativeFields(t *testing.T) {
+	for f := range reflect.TypeFor[SamplingParams]().Fields() {
+		if strings.HasPrefix(f.Tag.Get("json"), "speculative.") {
+			t.Errorf("SamplingParams.%s maps %q, which llama-server v1.1.0 ignores", f.Name, f.Tag.Get("json"))
+		}
+	}
+	got := jsontest.RoundTrip[samplingRequest](t, []byte(`{"speculative.n_max":8}`))
+	if _, ok := got.Extra["speculative.n_max"]; !ok {
+		t.Errorf("speculative.n_max was not kept as an unknown member: %+v", got)
+	}
+}
+
+// TestNoUnknownSeesInsidePrompt checks that the unknown-member gate reaches the object form of a Prompt, which is
+// kept in an unexported field.
+func TestNoUnknownSeesInsidePrompt(t *testing.T) {
+	tests := map[string]struct {
+		data string
+		want string
+	}{
+		"error: object prompt":         {data: `{"prompt_string":"hello","future":1}`, want: "/: future"},
+		"error: object inside a batch": {data: `["a",{"prompt_string":"b","later":2}]`, want: "/1: later"},
+		"success: no unknown member":   {data: `{"prompt_string":"hello"}`},
+		"success: text has no members": {data: `"hello"`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			msgs, _ := jsontest.Failures(t, func(tb testing.TB) { jsontest.NoUnknown[Prompt](tb, []byte(tt.data), nil) })
+			if tt.want == "" {
+				if len(msgs) != 0 {
+					t.Errorf("unexpected failures: %v", msgs)
+				}
+				return
+			}
+			if len(msgs) != 1 || !strings.Contains(msgs[0], tt.want) {
+				t.Errorf("NoUnknown[Prompt](%s) failures = %v, want one naming %q", tt.data, msgs, tt.want)
+			}
+		})
+	}
 }

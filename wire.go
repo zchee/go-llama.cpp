@@ -127,8 +127,9 @@ type SamplingParams struct {
 	MinKeep *int `json:"min_keep,omitzero"`
 	// BackendSampling samples on the backend instead of in llama.cpp.
 	BackendSampling *bool `json:"backend_sampling,omitzero"`
-	// Samplers is the order of the sampler chain, for example ["top_k", "top_p", "temperature"].
-	Samplers []string `json:"samplers,omitzero"`
+	// Samplers is the order of the sampler chain: an array of sampler names such as
+	// StringSlice("top_k", "top_p", "temperature"), or a string of sampler characters such as StringValue("kpt").
+	Samplers StringOrSlice `json:"samplers,omitzero"`
 	// IgnoreEOS keeps generating after the end-of-sequence token.
 	IgnoreEOS *bool `json:"ignore_eos,omitzero"`
 	// LogitBias changes the likelihood of tokens.
@@ -148,13 +149,6 @@ type SamplingParams struct {
 	PreservedTokens []string `json:"preserved_tokens,omitzero"`
 	// LoRA sets the scale of LoRA adapters for this request; adapters not listed get scale 0.
 	LoRA []LoRAWeight `json:"lora,omitzero"`
-
-	// SpeculativeNMax is the maximum number of draft tokens.
-	SpeculativeNMax *int `json:"speculative.n_max,omitzero"`
-	// SpeculativeNMin is the minimum number of draft tokens.
-	SpeculativeNMin *int `json:"speculative.n_min,omitzero"`
-	// SpeculativePMin is the minimum probability of draft tokens.
-	SpeculativePMin *float64 `json:"speculative.p_min,omitzero"`
 
 	// ReasoningFormat selects how reasoning output is parsed, for example "none", "deepseek" or "auto".
 	ReasoningFormat *string `json:"reasoning_format,omitzero"`
@@ -488,6 +482,10 @@ func (p *Prompt) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		if !slices.ContainsFunc(elems, isNumber) {
 			batch := make([]Prompt, len(elems))
 			for i, e := range elems {
+				// The server rejects a null element, and a batch with an unset element cannot be encoded.
+				if e.Kind() == 'n' {
+					return fmt.Errorf("llama: prompt %d of a batch is null", i)
+				}
 				if err := batch[i].unmarshalSingle(e); err != nil {
 					return fmt.Errorf("prompt %d: %w", i, err)
 				}
@@ -564,15 +562,51 @@ func (p *Prompt) unmarshalSingle(v jsontext.Value) error {
 	}
 }
 
-// LogitBiasEntry changes the likelihood of one token, or of every token of a string.
+// LogitBiasTarget is what a LogitBiasEntry applies to: a token id, or a string whose tokens all receive the bias.
+// Build one with TokenTarget or TextTarget.
+type LogitBiasTarget struct {
+	text   string
+	token  Token
+	isText bool
+}
+
+// TokenTarget returns a target naming a token id.
+func TokenTarget(t Token) LogitBiasTarget { return LogitBiasTarget{token: t} }
+
+// TextTarget returns a target naming a string, which the server tokenizes. In object form the server reads a key
+// that is entirely a decimal integer (for example "01") as a token id, so such a text reaches that token.
+func TextTarget(s string) LogitBiasTarget { return LogitBiasTarget{text: s, isText: true} }
+
+// Token returns the token id of a token target.
+func (t LogitBiasTarget) Token() (Token, bool) { return t.token, !t.isText }
+
+// Text returns the string of a text target.
+func (t LogitBiasTarget) Text() (string, bool) { return t.text, t.isText }
+
+// key returns the object member name of the target.
+func (t LogitBiasTarget) key() string {
+	if t.isText {
+		return t.text
+	}
+	return strconv.FormatInt(int64(t.token), 10)
+}
+
+// targetFromKey returns the target of an object member name. Only the canonical spelling of an integer becomes a
+// token target, so that every other spelling ("01", "+1") is kept as written.
+func targetFromKey(key string) LogitBiasTarget {
+	if n, err := strconv.ParseInt(key, 10, 32); err == nil && strconv.FormatInt(n, 10) == key {
+		return TokenTarget(Token(n))
+	}
+	return TextTarget(key)
+}
+
+// LogitBiasEntry changes the likelihood of a target.
 type LogitBiasEntry struct {
-	// Token is the token id, used when Text is empty.
-	Token Token
-	// Text is a string whose tokens all receive the bias.
-	Text string
+	// Target is the token or string the entry applies to.
+	Target LogitBiasTarget
 	// Bias is added to the logit.
 	Bias float64
-	// Ban forbids the token; it is sent as false and Bias is ignored.
+	// Ban forbids the target; it is sent as false and Bias is ignored.
 	Ban bool
 }
 
@@ -589,8 +623,8 @@ func LogitBiasArray(entries ...LogitBiasEntry) LogitBias {
 	return LogitBias{entries: slices.Clone(entries)}
 }
 
-// LogitBiasObject returns a logit bias sent in object form, the form OpenAI clients use. A Text that is a decimal
-// integer is read by the server as a token id.
+// LogitBiasObject returns a logit bias sent in object form, the form OpenAI clients use. Two entries whose targets
+// spell the same member name (TokenTarget(1) and TextTarget("1")) cannot be encoded.
 func LogitBiasObject(entries ...LogitBiasEntry) LogitBias {
 	return LogitBias{entries: slices.Clone(entries), object: true}
 }
@@ -623,11 +657,7 @@ func (b LogitBias) MarshalJSONTo(enc *jsontext.Encoder) error {
 			return err
 		}
 		for _, e := range b.entries {
-			key := e.Text
-			if key == "" {
-				key = strconv.FormatInt(int64(e.Token), 10)
-			}
-			if err := enc.WriteToken(jsontext.String(key)); err != nil {
+			if err := enc.WriteToken(jsontext.String(e.Target.key())); err != nil {
 				return err
 			}
 			if err := enc.WriteToken(e.biasToken()); err != nil {
@@ -640,9 +670,9 @@ func (b LogitBias) MarshalJSONTo(enc *jsontext.Encoder) error {
 		return err
 	}
 	for _, e := range b.entries {
-		target := jsontext.Int(int64(e.Token))
-		if e.Text != "" {
-			target = jsontext.String(e.Text)
+		target := jsontext.Int(int64(e.Target.token))
+		if e.Target.isText {
+			target = jsontext.String(e.Target.text)
 		}
 		for _, tok := range []jsontext.Token{jsontext.BeginArray, target, e.biasToken(), jsontext.EndArray} {
 			if err := enc.WriteToken(tok); err != nil {
@@ -673,12 +703,7 @@ func (b *LogitBias) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 			if err != nil {
 				return err
 			}
-			var e LogitBiasEntry
-			if t, err := strconv.ParseInt(key, 10, 32); err == nil {
-				e.Token = Token(t)
-			} else {
-				e.Text = key
-			}
+			e := LogitBiasEntry{Target: targetFromKey(key)}
 			if err := e.unmarshalBias(val); err != nil {
 				return fmt.Errorf("llama: logit_bias %q: %w", key, err)
 			}
@@ -702,13 +727,17 @@ func (b *LogitBias) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 			var e LogitBiasEntry
 			switch pair[0].Kind() {
 			case '0':
-				if err := json.Unmarshal(pair[0], &e.Token); err != nil {
+				var t Token
+				if err := json.Unmarshal(pair[0], &t); err != nil {
 					return fmt.Errorf("llama: logit_bias pair %d: %w", i, err)
 				}
+				e.Target = TokenTarget(t)
 			case '"':
-				if err := json.Unmarshal(pair[0], &e.Text); err != nil {
+				var text string
+				if err := json.Unmarshal(pair[0], &text); err != nil {
 					return err
 				}
+				e.Target = TextTarget(text)
 			default:
 				return fmt.Errorf("llama: logit_bias pair %d target must be a token id or a string", i)
 			}
