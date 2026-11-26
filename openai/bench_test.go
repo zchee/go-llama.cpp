@@ -179,16 +179,13 @@ func BenchmarkResponsesStreamDecode(b *testing.B) {
 }
 
 func BenchmarkEmbeddingResponseDecode(b *testing.B) {
-	cases := []struct {
-		name    string
-		fixture string
-	}{
-		{name: "float", fixture: "testdata/embeddings/float.resp.json"},
-		{name: "base64", fixture: "testdata/embeddings/base64.resp.json"},
+	tests := map[string]struct{ fixture string }{
+		"float":  {fixture: "testdata/embeddings/float.resp.json"},
+		"base64": {fixture: "testdata/embeddings/base64.resp.json"},
 	}
 
-	for _, tc := range cases {
-		b.Run(tc.name, func(b *testing.B) {
+	for name, tc := range tests {
+		b.Run(name, func(b *testing.B) {
 			data := jsontest.ReadFile(b, tc.fixture)
 			var resp openai.EmbeddingResponse
 			for b.Loop() {

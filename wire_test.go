@@ -134,37 +134,37 @@ func TestPromptAccessors(t *testing.T) {
 }
 
 func TestPromptJSONErrors(t *testing.T) {
-	marshal := map[string]Prompt{
-		"error: parts with media":      ObjectPrompt(PromptObject{PromptString: TokenizeParts(TokenPart(1)), MultimodalData: [][]byte{}}),
-		"error: mixed without a token": MixedPrompt(TextPart("a"), TextPart("b")),
-		"error: nested batch":          BatchPrompt(BatchPrompt(TextPrompt("a"))),
-		"error: zero in batch":         BatchPrompt(Prompt{}),
+	tests := map[string]struct {
+		prompt Prompt
+		wire   string
+	}{
+		"error: parts with media":          {prompt: ObjectPrompt(PromptObject{PromptString: TokenizeParts(TokenPart(1)), MultimodalData: [][]byte{}})},
+		"error: mixed without a token":     {prompt: MixedPrompt(TextPart("a"), TextPart("b"))},
+		"error: nested batch":              {prompt: BatchPrompt(BatchPrompt(TextPrompt("a")))},
+		"error: zero in batch":             {prompt: BatchPrompt(Prompt{})},
+		"error: parts with empty media":    {wire: `{"prompt_string":[1],"multimodal_data":[]}`},
+		"error: parts with null media":     {wire: `{"prompt_string":[1],"multimodal_data":null}`},
+		"error: nested object parts":       {wire: `{"prompt_string":[[1]]}`},
+		"error: number":                    {wire: `12`},
+		"error: bool":                      {wire: `true`},
+		"error: object inside mixed":       {wire: `[1,{"a":1}]`},
+		"error: float token":               {wire: `[1.5,2]`},
+		"error: batch element of strings":  {wire: `[["a","b"]]`},
+		"error: batch element of a number": {wire: `["a",true]`},
+		"error: null batch element":        {wire: `["x",null]`},
+		"error: only a null element":       {wire: `[null]`},
 	}
-	for name, p := range marshal {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if out, err := json.Marshal(p); err == nil {
-				t.Errorf("Marshal succeeded with %s", out)
+			if tt.wire == "" {
+				if out, err := json.Marshal(tt.prompt); err == nil {
+					t.Errorf("Marshal succeeded with %s", out)
+				}
+				return
 			}
-		})
-	}
-	unmarshal := map[string]string{
-		"error: parts with empty media":    `{"prompt_string":[1],"multimodal_data":[]}`,
-		"error: parts with null media":     `{"prompt_string":[1],"multimodal_data":null}`,
-		"error: nested object parts":       `{"prompt_string":[[1]]}`,
-		"error: number":                    `12`,
-		"error: bool":                      `true`,
-		"error: object inside mixed":       `[1,{"a":1}]`,
-		"error: float token":               `[1.5,2]`,
-		"error: batch element of strings":  `[["a","b"]]`,
-		"error: batch element of a number": `["a",true]`,
-		"error: null batch element":        `["x",null]`,
-		"error: only a null element":       `[null]`,
-	}
-	for name, in := range unmarshal {
-		t.Run(name, func(t *testing.T) {
 			var p Prompt
-			if err := json.Unmarshal([]byte(in), &p); err == nil {
-				t.Errorf("Unmarshal(%s) succeeded with kind %d", in, p.Kind())
+			if err := json.Unmarshal([]byte(tt.wire), &p); err == nil {
+				t.Errorf("Unmarshal(%s) succeeded with kind %d", tt.wire, p.Kind())
 			}
 		})
 	}
@@ -172,8 +172,9 @@ func TestPromptJSONErrors(t *testing.T) {
 
 func TestLogitBiasJSON(t *testing.T) {
 	tests := map[string]struct {
-		bias LogitBias
-		json string
+		bias    LogitBias
+		json    string
+		wantErr bool
 	}{
 		"success: array form with ban and text": {
 			bias: LogitBiasArray(
@@ -208,11 +209,24 @@ func TestLogitBiasJSON(t *testing.T) {
 			),
 			json: `{"01":1,"1":2,"+1":3,"-1":4}`,
 		},
-		"success: empty object": {bias: LogitBiasObject(), json: `{}`},
-		"success: empty array":  {bias: LogitBiasArray(), json: `[]`},
+		"success: empty object":     {bias: LogitBiasObject(), json: `{}`},
+		"success: empty array":      {bias: LogitBiasArray(), json: `[]`},
+		"error: duplicate member":   {json: `{"1":1,"1":2}`, wantErr: true},
+		"error: true is not a bias": {json: `{"1":true}`, wantErr: true},
+		"error: pair of three":      {json: `[[1,2,3]]`, wantErr: true},
+		"error: target object":      {json: `[[{},1]]`, wantErr: true},
+		"error: scalar":             {json: `5`, wantErr: true},
+		"error: string bias":        {json: `[[1,"x"]]`, wantErr: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			if tt.wantErr {
+				var b LogitBias
+				if err := json.Unmarshal([]byte(tt.json), &b); err == nil {
+					t.Errorf("Unmarshal(%s) succeeded", tt.json)
+				}
+				return
+			}
 			got, err := json.Marshal(tt.bias)
 			if err != nil {
 				t.Fatal(err)
@@ -245,21 +259,6 @@ func TestLogitBiasJSON(t *testing.T) {
 	}
 	if _, ok := TokenTarget(7).Text(); ok {
 		t.Errorf("a token target reports a text")
-	}
-	for name, in := range map[string]string{
-		"error: duplicate member":   `{"1":1,"1":2}`,
-		"error: true is not a bias": `{"1":true}`,
-		"error: pair of three":      `[[1,2,3]]`,
-		"error: target object":      `[[{},1]]`,
-		"error: scalar":             `5`,
-		"error: string bias":        `[[1,"x"]]`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			var b LogitBias
-			if err := json.Unmarshal([]byte(in), &b); err == nil {
-				t.Errorf("Unmarshal(%s) succeeded", in)
-			}
-		})
 	}
 }
 

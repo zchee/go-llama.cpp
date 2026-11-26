@@ -54,20 +54,19 @@ func BenchmarkCompletionStreamDecode(b *testing.B) {
 }
 
 func BenchmarkPromptEncode(b *testing.B) {
-	cases := []struct {
-		name     string
+	tests := map[string]struct {
 		fixture  string
 		wantKind llama.PromptKind
 	}{
-		{name: "text", fixture: "testdata/completion/basic.req.json", wantKind: llama.PromptKindText},
-		{name: "tokens", fixture: "testdata/completion/children.req.json", wantKind: llama.PromptKindTokens},
-		{name: "mixed", fixture: "testdata/completion/projection.req.json", wantKind: llama.PromptKindMixed},
-		{name: "object", fixture: "testdata/completion/media.req.json", wantKind: llama.PromptKindObject},
-		{name: "batch", fixture: "testdata/completion/batch.req.json", wantKind: llama.PromptKindBatch},
+		"text":   {fixture: "testdata/completion/basic.req.json", wantKind: llama.PromptKindText},
+		"tokens": {fixture: "testdata/completion/children.req.json", wantKind: llama.PromptKindTokens},
+		"mixed":  {fixture: "testdata/completion/projection.req.json", wantKind: llama.PromptKindMixed},
+		"object": {fixture: "testdata/completion/media.req.json", wantKind: llama.PromptKindObject},
+		"batch":  {fixture: "testdata/completion/batch.req.json", wantKind: llama.PromptKindBatch},
 	}
 
-	for _, tc := range cases {
-		b.Run(tc.name, func(b *testing.B) {
+	for name, tc := range tests {
+		b.Run(name, func(b *testing.B) {
 			data := jsontest.ReadFile(b, tc.fixture)
 			var req llama.CompletionRequest
 			if err := json.Unmarshal(data, &req, json.Deterministic(true)); err != nil {

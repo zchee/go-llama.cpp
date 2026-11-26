@@ -249,23 +249,23 @@ func TestCompletionsStreamWire(t *testing.T) {
 }
 
 func TestCompletionsRequestWire(t *testing.T) {
-	fixtures := map[string]string{
-		"success: basic":           "testdata/completions/basic.req.json",
-		"success: stream":          "testdata/completions/stream.req.json",
-		"success: logprobs":        "testdata/completions/logprobs.req.json",
-		"success: multi":           "testdata/completions/multi.req.json",
-		"success: stream_full":     "testdata/completions/stream_full.req.json",
-		"success: verbose":         "testdata/completions/verbose.req.json",
-		"success: error":           "testdata/completions/error.req.json",
-		"success: aliases":         "testdata/completions/aliases.req.json",
-		"success: stop":            "testdata/completions/stop.req.json",
-		"success: stream_verbose":  "testdata/completions/stream_verbose.req.json",
-		"success: stream_no_usage": "testdata/completions/stream_no_usage.req.json",
-		"success: stream_error":    "testdata/completions/stream_error.req.json",
+	tests := map[string]struct{ path string }{
+		"success: basic":           {"testdata/completions/basic.req.json"},
+		"success: stream":          {"testdata/completions/stream.req.json"},
+		"success: logprobs":        {"testdata/completions/logprobs.req.json"},
+		"success: multi":           {"testdata/completions/multi.req.json"},
+		"success: stream_full":     {"testdata/completions/stream_full.req.json"},
+		"success: verbose":         {"testdata/completions/verbose.req.json"},
+		"success: error":           {"testdata/completions/error.req.json"},
+		"success: aliases":         {"testdata/completions/aliases.req.json"},
+		"success: stop":            {"testdata/completions/stop.req.json"},
+		"success: stream_verbose":  {"testdata/completions/stream_verbose.req.json"},
+		"success: stream_no_usage": {"testdata/completions/stream_no_usage.req.json"},
+		"success: stream_error":    {"testdata/completions/stream_error.req.json"},
 	}
-	for name, path := range fixtures {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			data := jsontest.ReadFile(t, path)
+			data := jsontest.ReadFile(t, tt.path)
 			jsontest.RoundTrip[CompletionRequest](t, data)
 			jsontest.InjectUnknown[CompletionRequest](t, data)
 			jsontest.NoUnknown[CompletionRequest](t, data, nil)

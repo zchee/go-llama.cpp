@@ -82,33 +82,33 @@ func checkStreamCuts[T any](t *testing.T, fixture, path string, terminalYields b
 }
 
 func TestCompletionsStreamFixtureCuts(t *testing.T) {
-	tests := map[string]string{
-		"success: text deltas":        "testdata/completions/stream.resp.sse",
-		"success: usage on the chunk": "testdata/completions/stream_full.resp.sse",
+	tests := map[string]struct{ fixture string }{
+		"success: text deltas":        {"testdata/completions/stream.resp.sse"},
+		"success: usage on the chunk": {"testdata/completions/stream_full.resp.sse"},
 	}
-	for name, fixture := range tests {
-		t.Run(name, func(t *testing.T) { checkStreamCuts[CompletionResponse](t, fixture, "/v1/completions", false) })
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) { checkStreamCuts[CompletionResponse](t, tt.fixture, "/v1/completions", false) })
 	}
 }
 
 func TestChatCompletionsStreamFixtureCuts(t *testing.T) {
-	tests := map[string]string{
-		"success: message deltas": "testdata/chat_completions/stream.resp.sse",
-		"success: reasoning":      "testdata/chat_completions/reasoning_stream.resp.sse",
-		"success: tool calls":     "testdata/chat_completions/tool_stream.resp.sse",
+	tests := map[string]struct{ fixture string }{
+		"success: message deltas": {"testdata/chat_completions/stream.resp.sse"},
+		"success: reasoning":      {"testdata/chat_completions/reasoning_stream.resp.sse"},
+		"success: tool calls":     {"testdata/chat_completions/tool_stream.resp.sse"},
 	}
-	for name, fixture := range tests {
-		t.Run(name, func(t *testing.T) { checkStreamCuts[ChatCompletionChunk](t, fixture, "/v1/chat/completions", false) })
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) { checkStreamCuts[ChatCompletionChunk](t, tt.fixture, "/v1/chat/completions", false) })
 	}
 }
 
 func TestResponsesStreamFixtureCuts(t *testing.T) {
-	tests := map[string]string{
-		"success: lifecycle and deltas": "testdata/responses/stream.resp.sse",
-		"success: reasoning":            "testdata/responses/reasoning_stream.resp.sse",
-		"success: tool calls":           "testdata/responses/tool_stream.resp.sse",
+	tests := map[string]struct{ fixture string }{
+		"success: lifecycle and deltas": {"testdata/responses/stream.resp.sse"},
+		"success: reasoning":            {"testdata/responses/reasoning_stream.resp.sse"},
+		"success: tool calls":           {"testdata/responses/tool_stream.resp.sse"},
 	}
-	for name, fixture := range tests {
-		t.Run(name, func(t *testing.T) { checkStreamCuts[ResponseEvent](t, fixture, "/v1/responses", true) })
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) { checkStreamCuts[ResponseEvent](t, tt.fixture, "/v1/responses", true) })
 	}
 }

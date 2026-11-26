@@ -158,34 +158,39 @@ func TestPayloadAccessors(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			values := map[string]systemone.Payload{}
-			switch tt.kind {
-			case systemone.PayloadKindNone:
-				values["zero value"] = systemone.Payload{}
-			case systemone.PayloadKindNull:
-				values["Null"] = systemone.Null()
-			case systemone.PayloadKindText:
-				values["Text"] = systemone.Text(tt.value.(string))
-			}
+			var decoded, raw, constructed systemone.Payload
 			if tt.wire != "" {
-				var p systemone.Payload
-				if err := json.Unmarshal([]byte(tt.wire), &p); err != nil {
+				if err := json.Unmarshal([]byte(tt.wire), &decoded); err != nil {
 					t.Fatal(err)
 				}
-				values["Unmarshal"] = p
-				raw, err := systemone.Raw(jsontext.Value(tt.wire))
+				var err error
+				raw, err = systemone.Raw(jsontext.Value(tt.wire))
 				if err != nil {
 					t.Fatal(err)
 				}
-				values["Raw"] = raw
-				v, err := systemone.NewPayload(tt.value)
+				constructed, err = systemone.NewPayload(tt.value)
 				if err != nil {
 					t.Fatal(err)
 				}
-				values["NewPayload"] = v
 			}
-			for source, p := range values {
+			text, _ := tt.value.(string)
+			tests := map[string]struct {
+				applicable bool
+				p          systemone.Payload
+			}{
+				"zero value": {tt.kind == systemone.PayloadKindNone, systemone.Payload{}},
+				"Null":       {tt.kind == systemone.PayloadKindNull, systemone.Null()},
+				"Text":       {tt.kind == systemone.PayloadKindText, systemone.Text(text)},
+				"Unmarshal":  {tt.wire != "", decoded},
+				"Raw":        {tt.wire != "", raw},
+				"NewPayload": {tt.wire != "", constructed},
+			}
+			for source, tc := range tests {
+				if !tc.applicable {
+					continue
+				}
 				t.Run(source, func(t *testing.T) {
+					p := tc.p
 					if p.Kind() != tt.kind || p.IsZero() != (tt.kind == systemone.PayloadKindNone) || p.IsNull() != (tt.kind == systemone.PayloadKindNull) {
 						t.Errorf("kind=%v, zero=%t, null=%t, want kind %v", p.Kind(), p.IsZero(), p.IsNull(), tt.kind)
 					}

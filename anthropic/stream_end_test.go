@@ -27,14 +27,14 @@ import (
 // frame: every cut must yield the events before it and then llama.ErrIncompleteStream, because the
 // stream is complete only after the message_stop event; the whole recording must end cleanly.
 func TestMessagesStreamFixtureCuts(t *testing.T) {
-	tests := map[string]string{
-		"success: text deltas": "testdata/messages/stream.resp.sse",
-		"success: thinking":    "testdata/messages/thinking_stream.resp.sse",
-		"success: tool use":    "testdata/messages/tool_stream.resp.sse",
+	tests := map[string]struct{ fixture string }{
+		"success: text deltas": {"testdata/messages/stream.resp.sse"},
+		"success: thinking":    {"testdata/messages/thinking_stream.resp.sse"},
+		"success: tool use":    {"testdata/messages/tool_stream.resp.sse"},
 	}
-	for name, fixture := range tests {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			data := jsontest.ReadFile(t, fixture)
+			data := jsontest.ReadFile(t, tt.fixture)
 			var cuts [][]byte
 			for i := 0; i+1 < len(data); i++ {
 				if data[i] == '\n' && data[i+1] == '\n' {

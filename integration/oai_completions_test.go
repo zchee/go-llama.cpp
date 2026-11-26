@@ -366,21 +366,13 @@ func TestOAICompletionsMultimodalRefusal(t *testing.T) {
 		}
 	})
 
-	refusals := map[string]*openai.CompletionRequest{
-		"error: token prompt with a projector": {
-			Model:     "vision",
-			Prompt:    llama.TokenPrompt(1, 2, 3),
-			MaxTokens: new(2),
-		},
-		"error: object prompt with a projector": {
-			Model:     "vision",
-			Prompt:    llama.MultimodalPrompt("<__media__> describe", []byte("png")),
-			MaxTokens: new(2),
-		},
+	tests := map[string]struct{ prompt llama.Prompt }{
+		"error: token prompt with a projector":  {llama.TokenPrompt(1, 2, 3)},
+		"error: object prompt with a projector": {llama.MultimodalPrompt("<__media__> describe", []byte("png"))},
 	}
-	for name, req := range refusals {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := oc.Completions(t.Context(), req)
+			_, err := oc.Completions(t.Context(), &openai.CompletionRequest{Model: "vision", Prompt: tt.prompt, MaxTokens: new(2)})
 			apiErr, ok := errors.AsType[*llama.APIError](err)
 			if !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest {
 				t.Fatalf("err = %v, want 400 invalid_request_error", err)

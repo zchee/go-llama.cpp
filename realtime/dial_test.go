@@ -45,14 +45,14 @@ func TestDialConnectionFailure(t *testing.T) {
 	}
 	defer c.HTTPClient().CloseIdleConnections()
 
-	tests := map[string]*DialOptions{
-		"error: nil options":    nil,
-		"error: with intent":    {Intent: IntentTranscription, Model: "m", ReadLimit: 1 << 10},
-		"error: request option": {RequestOptions: []llama.RequestOption{llama.WithAutoload(true)}},
+	tests := map[string]struct{ opts *DialOptions }{
+		"error: nil options":    {},
+		"error: with intent":    {&DialOptions{Intent: IntentTranscription, Model: "m", ReadLimit: 1 << 10}},
+		"error: request option": {&DialOptions{RequestOptions: []llama.RequestOption{llama.WithAutoload(true)}}},
 	}
-	for name, opts := range tests {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			s, err := Dial(t.Context(), c, opts)
+			s, err := Dial(t.Context(), c, tt.opts)
 			if err == nil {
 				_ = s.CloseNow()
 				t.Fatalf("Dial to a closed port succeeded")
@@ -109,12 +109,13 @@ func (dumpingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // handshake bypasses the llama client's request path, so Dial must redact its own errors.
 func TestDialErrorsNeverCarryAPIKey(t *testing.T) {
 	const key = "sk-realtime-handshake-secret"
-	for name, header := range map[string]llama.APIKeyHeader{
-		"success: bearer":    llama.APIKeyHeaderAuthorization,
-		"success: X-Api-Key": llama.APIKeyHeaderXAPIKey,
-	} {
+	tests := map[string]struct{ header llama.APIKeyHeader }{
+		"success: bearer":    {llama.APIKeyHeaderAuthorization},
+		"success: X-Api-Key": {llama.APIKeyHeaderXAPIKey},
+	}
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c, err := llama.New("http://127.0.0.1:8080", llama.WithAPIKey(key), llama.WithAPIKeyHeader(header),
+			c, err := llama.New("http://127.0.0.1:8080", llama.WithAPIKey(key), llama.WithAPIKeyHeader(tt.header),
 				llama.WithHTTPClient(&http.Client{Transport: dumpingTransport{}}))
 			if err != nil {
 				t.Fatal(err)
