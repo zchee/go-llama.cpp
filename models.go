@@ -184,16 +184,25 @@ func (c *Client) ListModels(ctx context.Context, opts ...RequestOption) (*ModelL
 
 // LoadModel asks the router to start loading the named model.
 func (c *Client) LoadModel(ctx context.Context, req *ModelRequest, opts ...RequestOption) (*ModelActionResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil load model request")
+	}
 	return Call[*ModelActionResponse](ctx, c, http.MethodPost, "/models/load", req, opts...)
 }
 
 // UnloadModel asks the router to unload a running model or pause a download.
 func (c *Client) UnloadModel(ctx context.Context, req *ModelRequest, opts ...RequestOption) (*ModelActionResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil unload model request")
+	}
 	return Call[*ModelActionResponse](ctx, c, http.MethodPost, "/models/unload", req, opts...)
 }
 
 // DownloadModel starts a background download into the router's cache. Observe ModelEvents for completion.
 func (c *Client) DownloadModel(ctx context.Context, req *DownloadModelRequest, opts ...RequestOption) (*ModelActionResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil download model request")
+	}
 	return Call[*ModelActionResponse](ctx, c, http.MethodPost, "/models", req, opts...)
 }
 

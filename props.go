@@ -17,6 +17,7 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"net/http"
 )
 
@@ -101,5 +102,8 @@ func (c *Client) Props(ctx context.Context, opts ...RequestOption) (*PropsRespon
 
 // SetProps posts global properties. The server acknowledges the request but does not change any settings at this tag.
 func (c *Client) SetProps(ctx context.Context, req *PropsSetRequest, opts ...RequestOption) (*PropsSetResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil set props request")
+	}
 	return Call[*PropsSetResponse](ctx, c, http.MethodPost, "/props", req, opts...)
 }

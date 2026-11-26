@@ -236,10 +236,11 @@ type RerankTEIResult struct {
 // It rejects a "texts" key in req.Extra before sending. Nil or empty Documents
 // are sent and rejected by the server.
 func (c *Client) Rerank(ctx context.Context, req *RerankRequest, opts ...RequestOption) (*RerankResponse, error) {
-	if req != nil {
-		if _, ok := req.Extra["texts"]; ok {
-			return nil, errors.New(`llama: Rerank request cannot include "texts"; it selects the TEI format`)
-		}
+	if req == nil {
+		return nil, errors.New("llama: nil rerank request")
+	}
+	if _, ok := req.Extra["texts"]; ok {
+		return nil, errors.New(`llama: Rerank request cannot include "texts"; it selects the TEI format`)
 	}
 	return Call[*RerankResponse](ctx, c, http.MethodPost, "/reranking", req, opts...)
 }
@@ -248,10 +249,11 @@ func (c *Client) Rerank(ctx context.Context, req *RerankRequest, opts ...Request
 // It rejects a "documents" key in req.Extra before sending. Nil or empty Texts
 // are sent and rejected by the server.
 func (c *Client) RerankTEI(ctx context.Context, req *RerankTEIRequest, opts ...RequestOption) ([]RerankTEIResult, error) {
-	if req != nil {
-		if _, ok := req.Extra["documents"]; ok {
-			return nil, errors.New(`llama: RerankTEI request cannot include "documents"; it takes precedence over "texts"`)
-		}
+	if req == nil {
+		return nil, errors.New("llama: nil rerank TEI request")
+	}
+	if _, ok := req.Extra["documents"]; ok {
+		return nil, errors.New(`llama: RerankTEI request cannot include "documents"; it takes precedence over "texts"`)
 	}
 	return Call[[]RerankTEIResult](ctx, c, http.MethodPost, "/reranking", req, opts...)
 }

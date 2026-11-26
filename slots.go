@@ -17,6 +17,7 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -118,6 +119,9 @@ func (c *Client) Slots(ctx context.Context, opts ...RequestOption) ([]Slot, erro
 // modulo the slot count. A non-negative ID that fits in a C++ int also wraps modulo the slot count, which
 // the client does not know. The server returns HTTP 400 for a larger ID.
 func (c *Client) SaveSlot(ctx context.Context, id int, req *SlotFileRequest, opts ...RequestOption) (*SlotSaveResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil save slot request")
+	}
 	return slotsAction[*SlotSaveResponse](ctx, c, id, "save", req, opts)
 }
 
@@ -127,6 +131,9 @@ func (c *Client) SaveSlot(ctx context.Context, id int, req *SlotFileRequest, opt
 // modulo the slot count. A non-negative ID that fits in a C++ int also wraps modulo the slot count, which
 // the client does not know. The server returns HTTP 400 for a larger ID.
 func (c *Client) RestoreSlot(ctx context.Context, id int, req *SlotFileRequest, opts ...RequestOption) (*SlotRestoreResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil restore slot request")
+	}
 	return slotsAction[*SlotRestoreResponse](ctx, c, id, "restore", req, opts)
 }
 

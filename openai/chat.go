@@ -17,10 +17,12 @@ package openai
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"iter"
 	"net/http"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/streamerr"
 )
 
 const chatCompletionsPath = "/v1/chat/completions"
@@ -204,7 +206,10 @@ type ControlChatCompletionResponse struct {
 
 // ChatCompletions generates complete assistant messages with POST /v1/chat/completions.
 func (c *Client) ChatCompletions(ctx context.Context, req *ChatCompletionRequest, opts ...llama.RequestOption) (*ChatCompletionResponse, error) {
-	if req != nil && req.Stream != nil && *req.Stream {
+	if req == nil {
+		return nil, errors.New("openai: nil chat completions request")
+	}
+	if req.Stream != nil && *req.Stream {
 		r := *req
 		r.Stream = new(false)
 		req = &r
@@ -215,20 +220,26 @@ func (c *Client) ChatCompletions(ctx context.Context, req *ChatCompletionRequest
 // ChatCompletionsStream streams assistant message deltas until the server's [DONE] marker without changing req.
 // A stream that ends before the "[DONE]" marker yields an error matching llama.ErrIncompleteStream.
 func (c *Client) ChatCompletionsStream(ctx context.Context, req *ChatCompletionRequest, opts ...llama.RequestOption) iter.Seq2[*ChatCompletionChunk, error] {
-	var r ChatCompletionRequest
-	if req != nil {
-		r = *req
+	if req == nil {
+		return streamerr.Once[ChatCompletionChunk](errors.New("openai: nil chat completions stream request"), llama.ErrStreamConsumed)
 	}
+	r := *req
 	r.Stream = new(true)
 	return llama.Stream[ChatCompletionChunk](ctx, c.c, http.MethodPost, chatCompletionsPath, &r, opts...)
 }
 
 // ControlChatCompletion sends a control action with POST /v1/chat/completions/control.
 func (c *Client) ControlChatCompletion(ctx context.Context, req *ControlChatCompletionRequest, opts ...llama.RequestOption) (*ControlChatCompletionResponse, error) {
+	if req == nil {
+		return nil, errors.New("openai: nil control chat completion request")
+	}
 	return llama.Call[*ControlChatCompletionResponse](ctx, c.c, http.MethodPost, chatCompletionsPath+"/control", req, opts...)
 }
 
 // ChatInputTokens counts the tokens in a templated chat prompt without running generation.
 func (c *Client) ChatInputTokens(ctx context.Context, req *ChatCompletionRequest, opts ...llama.RequestOption) (*InputTokensResponse, error) {
+	if req == nil {
+		return nil, errors.New("openai: nil chat input tokens request")
+	}
 	return llama.Call[*InputTokensResponse](ctx, c.c, http.MethodPost, chatCompletionsPath+"/input_tokens", req, opts...)
 }

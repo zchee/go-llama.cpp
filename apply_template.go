@@ -17,6 +17,7 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"net/http"
 )
 
@@ -80,5 +81,8 @@ type ApplyTemplateResponse struct {
 
 // ApplyTemplate renders a conversation with the server's configured chat template.
 func (c *Client) ApplyTemplate(ctx context.Context, req *ApplyTemplateRequest, opts ...RequestOption) (*ApplyTemplateResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil apply template request")
+	}
 	return Call[*ApplyTemplateResponse](ctx, c, http.MethodPost, "/apply-template", req, opts...)
 }

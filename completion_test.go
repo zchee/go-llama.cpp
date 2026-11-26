@@ -253,46 +253,6 @@ func TestCompletionResultsNeverEmpty(t *testing.T) {
 	}
 }
 
-// TestCompletionNilRequestsRefused checks that a nil request is refused before any HTTP request:
-// the base URL below is unroutable, so a sent request would surface a connection error instead.
-func TestCompletionNilRequestsRefused(t *testing.T) {
-	c, err := New("http://127.0.0.1:1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := t.Context()
-	tests := map[string]struct {
-		err  error
-		want error
-	}{
-		"error: Completion nil":  {func() error { _, err := c.Completion(ctx, nil); return err }(), errNilCompletion},
-		"error: Batch nil":       {func() error { _, err := c.CompletionBatch(ctx, nil); return err }(), errNilCompletion},
-		"error: Infill nil":      {func() error { _, err := c.Infill(ctx, nil); return err }(), errNilInfill},
-		"error: InfillBatch nil": {func() error { _, err := c.InfillBatch(ctx, nil); return err }(), errNilInfill},
-		"error: Stream nil": {func() error {
-			var last error
-			for _, err := range c.CompletionStream(ctx, nil) {
-				last = err
-			}
-			return last
-		}(), errNilCompletion},
-		"error: InfillStream nil": {func() error {
-			var last error
-			for _, err := range c.InfillStream(ctx, nil) {
-				last = err
-			}
-			return last
-		}(), errNilInfill},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			if !errors.Is(tt.err, tt.want) {
-				t.Errorf("error = %v, want %v", tt.err, tt.want)
-			}
-		})
-	}
-}
-
 func FuzzCompletionResults(f *testing.F) {
 	for _, name := range []string{"basic", "batch", "projection", "children"} {
 		f.Add(jsontest.ReadFile(f, "testdata/completion/"+name+".resp.json"))

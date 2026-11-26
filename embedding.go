@@ -17,6 +17,7 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"net/http"
 )
 
@@ -67,10 +68,16 @@ type EmbeddingResult struct {
 
 // Embedding sends a request to the legacy native POST /embedding endpoint, an alias of Embeddings.
 func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest, opts ...RequestOption) (EmbeddingResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil embedding request")
+	}
 	return Call[EmbeddingResponse](ctx, c, http.MethodPost, embeddingPath, req, opts...)
 }
 
 // Embeddings sends a request to POST /embeddings, including on servers configured with pooling none.
 func (c *Client) Embeddings(ctx context.Context, req *EmbeddingRequest, opts ...RequestOption) (EmbeddingResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil embeddings request")
+	}
 	return Call[EmbeddingResponse](ctx, c, http.MethodPost, embeddingsPath, req, opts...)
 }

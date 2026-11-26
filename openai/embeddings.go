@@ -70,7 +70,10 @@ type EmbeddingVector = llama.EmbeddingVector
 
 // Embeddings sends a request to POST /v1/embeddings. The server must use pooled embeddings.
 func (c *Client) Embeddings(ctx context.Context, req *EmbeddingRequest, opts ...llama.RequestOption) (*EmbeddingResponse, error) {
-	if req != nil && req.Input.IsZero() {
+	if req == nil {
+		return nil, errors.New("openai: nil embeddings request")
+	}
+	if req.Input.IsZero() {
 		if _, legacy := req.Extra["content"]; legacy {
 			return nil, errors.New("openai: use llama.Client.Embeddings for legacy content-only requests")
 		}

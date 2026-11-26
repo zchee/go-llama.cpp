@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+
+	"github.com/zchee/go-llama.cpp/internal/streamerr"
 )
 
 // InfillRequest generates text between InputPrefix and InputSuffix. Each accepts text or a flat array
@@ -115,10 +117,11 @@ type InfillContext struct {
 	Extra    map[string]jsontext.Value `json:",embed"`
 }
 
-var errNilInfill = errors.New("llama: nil infill request")
-
 // Infill generates one fill-in-the-middle result. The model must support infill tokens.
 func (c *Client) Infill(ctx context.Context, req *InfillRequest, opts ...RequestOption) (*CompletionResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil infill request")
+	}
 	results, err := c.InfillBatch(ctx, req, opts...)
 	if err != nil {
 		return nil, err
@@ -132,7 +135,7 @@ func (c *Client) Infill(ctx context.Context, req *InfillRequest, opts ...Request
 // InfillBatch returns every infill generated for the request, including siblings requested with NCmpl.
 func (c *Client) InfillBatch(ctx context.Context, req *InfillRequest, opts ...RequestOption) ([]*CompletionResponse, error) {
 	if req == nil {
-		return nil, errNilInfill
+		return nil, errors.New("llama: nil infill batch request")
 	}
 	if req.Stream != nil && *req.Stream {
 		cp := *req
@@ -146,7 +149,7 @@ func (c *Client) InfillBatch(ctx context.Context, req *InfillRequest, opts ...Re
 // the same detection and indexing limits as CompletionStream.
 func (c *Client) InfillStream(ctx context.Context, req *InfillRequest, opts ...RequestOption) iter.Seq2[*CompletionResponse, error] {
 	if req == nil {
-		return singleUseStream(func(yield func(*CompletionResponse, error) bool) { yield(nil, errNilInfill) })
+		return streamerr.Once[CompletionResponse](errors.New("llama: nil infill stream request"), ErrStreamConsumed)
 	}
 	cp := *req
 	cp.Stream = new(true)

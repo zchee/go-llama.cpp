@@ -280,5 +280,8 @@ func (p *TokenPiece) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // Tokenize converts text and existing token IDs to the model's token sequence.
 func (c *Client) Tokenize(ctx context.Context, req *TokenizeRequest, opts ...RequestOption) (*TokenizeResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil tokenize request")
+	}
 	return Call[*TokenizeResponse](ctx, c, http.MethodPost, "/tokenize", req, opts...)
 }

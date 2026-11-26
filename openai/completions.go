@@ -17,10 +17,12 @@ package openai
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"iter"
 	"net/http"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/streamerr"
 )
 
 // CompletionRequest is the request body of POST /v1/completions.
@@ -122,10 +124,10 @@ type CompletionLogprobs struct {
 // Stream in req is forced to false when set to true so the response is always a single JSON object; use
 // CompletionsStream for streaming.
 func (c *Client) Completions(ctx context.Context, req *CompletionRequest, opts ...llama.RequestOption) (*CompletionResponse, error) {
-	var body CompletionRequest
-	if req != nil {
-		body = *req
+	if req == nil {
+		return nil, errors.New("openai: nil completions request")
 	}
+	body := *req
 	if body.Stream != nil && *body.Stream {
 		body.Stream = new(false)
 	}
@@ -142,10 +144,10 @@ func (c *Client) Completions(ctx context.Context, req *CompletionRequest, opts .
 // Stream in req is forced to true without modifying req. A stream that ends before the "[DONE]"
 // marker yields an error matching llama.ErrIncompleteStream.
 func (c *Client) CompletionsStream(ctx context.Context, req *CompletionRequest, opts ...llama.RequestOption) iter.Seq2[*CompletionResponse, error] {
-	var body CompletionRequest
-	if req != nil {
-		body = *req
+	if req == nil {
+		return streamerr.Once[CompletionResponse](errors.New("openai: nil completions stream request"), llama.ErrStreamConsumed)
 	}
+	body := *req
 	body.Stream = new(true)
 	return llama.Stream[CompletionResponse](ctx, c.c, http.MethodPost, "/v1/completions", &body, opts...)
 }

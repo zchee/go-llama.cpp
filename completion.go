@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+
+	"github.com/zchee/go-llama.cpp/internal/streamerr"
 )
 
 // CompletionRequest selects the prompt and sampling settings of a native text completion.
@@ -135,10 +137,11 @@ func nativeStreamRequest(body any, request *http.Request) (int, []string) {
 	return max(1, prompts) * max(1, count), fields
 }
 
-var errNilCompletion = errors.New("llama: nil completion request")
-
 // Completion generates exactly one native text completion. Use CompletionBatch for requests returning several results.
 func (c *Client) Completion(ctx context.Context, req *CompletionRequest, opts ...RequestOption) (*CompletionResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil completion request")
+	}
 	results, err := c.CompletionBatch(ctx, req, opts...)
 	if err != nil {
 		return nil, err
@@ -152,7 +155,7 @@ func (c *Client) Completion(ctx context.Context, req *CompletionRequest, opts ..
 // CompletionBatch returns all completions, including a single completion as a one-element slice.
 func (c *Client) CompletionBatch(ctx context.Context, req *CompletionRequest, opts ...RequestOption) ([]*CompletionResponse, error) {
 	if req == nil {
-		return nil, errNilCompletion
+		return nil, errors.New("llama: nil completion batch request")
 	}
 	if req.Stream != nil && *req.Stream {
 		cp := *req
@@ -179,7 +182,7 @@ func requireCompletionResults(results completionResults, err error) ([]*Completi
 // A frame lost in the middle of a result cannot be detected if every expected final frame still arrives.
 func (c *Client) CompletionStream(ctx context.Context, req *CompletionRequest, opts ...RequestOption) iter.Seq2[*CompletionResponse, error] {
 	if req == nil {
-		return singleUseStream(func(yield func(*CompletionResponse, error) bool) { yield(nil, errNilCompletion) })
+		return streamerr.Once[CompletionResponse](errors.New("llama: nil completion stream request"), ErrStreamConsumed)
 	}
 	cp := *req
 	cp.Stream = new(true)

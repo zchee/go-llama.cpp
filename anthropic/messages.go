@@ -17,11 +17,13 @@ package anthropic
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"iter"
 	"maps"
 	"net/http"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/streamerr"
 )
 
 // MessagesRequest is the input to Messages, MessagesStream and CountTokens.
@@ -158,9 +160,6 @@ type CountTokensResponse struct {
 
 // withStream selects the format without changing the caller's request. The server merges extra_params last.
 func (r *MessagesRequest) withStream(stream bool) *MessagesRequest {
-	if r == nil {
-		return nil
-	}
 	out := *r
 	out.Stream = new(stream)
 	if p := r.ExtraParams; p != nil {
@@ -176,6 +175,9 @@ func (r *MessagesRequest) withStream(stream bool) *MessagesRequest {
 
 // Messages generates one assistant reply with POST /v1/messages.
 func (c *Client) Messages(ctx context.Context, req *MessagesRequest, opts ...llama.RequestOption) (*MessageResponse, error) {
+	if req == nil {
+		return nil, errors.New("anthropic: nil messages request")
+	}
 	return llama.Call[*MessageResponse](ctx, c.c, http.MethodPost, "/v1/messages", req.withStream(false), opts...)
 }
 
@@ -183,10 +185,16 @@ func (c *Client) Messages(ctx context.Context, req *MessagesRequest, opts ...lla
 // message_stop, without a [DONE] frame. An error event yields an *llama.APIError and ends iteration.
 // A stream that ends without a message_stop event yields an error matching llama.ErrIncompleteStream.
 func (c *Client) MessagesStream(ctx context.Context, req *MessagesRequest, opts ...llama.RequestOption) iter.Seq2[*MessageEvent, error] {
+	if req == nil {
+		return streamerr.Once[MessageEvent](errors.New("anthropic: nil messages stream request"), llama.ErrStreamConsumed)
+	}
 	return llama.Stream[MessageEvent](ctx, c.c, http.MethodPost, "/v1/messages", req.withStream(true), opts...)
 }
 
 // CountTokens counts the rendered prompt without generating a reply (POST /v1/messages/count_tokens).
 func (c *Client) CountTokens(ctx context.Context, req *MessagesRequest, opts ...llama.RequestOption) (*CountTokensResponse, error) {
+	if req == nil {
+		return nil, errors.New("anthropic: nil count tokens request")
+	}
 	return llama.Call[*CountTokensResponse](ctx, c.c, http.MethodPost, "/v1/messages/count_tokens", req, opts...)
 }

@@ -17,6 +17,7 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"net/http"
 )
 
@@ -40,5 +41,8 @@ type DetokenizeResponse struct {
 
 // Detokenize converts token IDs to text using the model's vocabulary.
 func (c *Client) Detokenize(ctx context.Context, req *DetokenizeRequest, opts ...RequestOption) (*DetokenizeResponse, error) {
+	if req == nil {
+		return nil, errors.New("llama: nil detokenize request")
+	}
 	return Call[*DetokenizeResponse](ctx, c, http.MethodPost, "/detokenize", req, opts...)
 }
