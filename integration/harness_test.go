@@ -70,6 +70,11 @@ func TestStartFailsFast(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "process exited") {
 		t.Fatalf("Start with a missing model = %v, want a report that the process exited", err)
 	}
+	// The diagnostics are the server's own output, which names the model file it could not open.
+	_, tail, _ := strings.Cut(err.Error(), "--- server log tail ---")
+	if strings.Contains(tail, "log unavailable") || !strings.Contains(tail, "missing.gguf") {
+		t.Errorf("the error lacks the server log tail:\n%s", err)
+	}
 }
 
 // TestRouterModeHidesLocalPaths starts a server in router mode on a directory holding the test model and checks
@@ -93,5 +98,47 @@ func TestRouterModeHidesLocalPaths(t *testing.T) {
 		if local != "" && strings.Contains(string(models), local) {
 			t.Errorf("GET /models reveals the local path %s: %s", local, models)
 		}
+	}
+}
+
+// TestObserverConcurrentReads reads the observed exchanges from another goroutine while a stream is in flight; run
+// with -race, it fails if Exchanges hands out state that RoundTrip is still writing.
+func TestObserverConcurrentReads(t *testing.T) {
+	srv := presetStories260K.server(t)
+	c, obs := srv.Client(t)
+	stop := make(chan struct{})
+	done := make(chan int)
+	go func() {
+		reads := 0
+		for {
+			select {
+			case <-stop:
+				done <- reads
+				return
+			default:
+			}
+			for _, ex := range obs.Exchanges() {
+				_ = ex.StatusCode
+				_ = ex.Err
+				_ = ex.BodyClosed()
+				_ = ex.BytesRead()
+			}
+			reads++
+		}
+	}()
+	for range 3 {
+		for _, err := range llama.Stream[streamChunk](t.Context(), c, http.MethodPost, "/completion", streamRequest) {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	close(stop)
+	if reads := <-done; reads == 0 {
+		t.Errorf("the reader never observed the exchanges")
+	}
+	ex := obs.Exchanges()
+	if len(ex) != 3 || ex[2].StatusCode != http.StatusOK || !ex[2].BodyClosed() {
+		t.Errorf("exchanges after the streams: %+v", ex)
 	}
 }

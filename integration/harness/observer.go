@@ -18,7 +18,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,7 +37,8 @@ func NewObserver(next http.RoundTripper) *Observer {
 	return &Observer{next: next}
 }
 
-// Exchange is one observed request and its outcome.
+// Exchange is one observed request and its outcome. Observer.Exchanges returns copies, so an Exchange never changes
+// after the caller got it, except for the body counters, which are atomic.
 type Exchange struct {
 	// Method is the request method.
 	Method string
@@ -57,17 +57,17 @@ type Exchange struct {
 }
 
 // Upgrade reports whether the request asked for a WebSocket upgrade.
-func (e *Exchange) Upgrade() bool {
+func (e Exchange) Upgrade() bool {
 	return strings.EqualFold(e.Header.Get("Upgrade"), "websocket")
 }
 
 // BodyClosed reports whether the response body has been closed. It is false when there was no response.
-func (e *Exchange) BodyClosed() bool {
+func (e Exchange) BodyClosed() bool {
 	return e.body != nil && e.body.closed.Load()
 }
 
 // BytesRead returns the number of response body bytes read so far.
-func (e *Exchange) BytesRead() int64 {
+func (e Exchange) BytesRead() int64 {
 	if e.body == nil {
 		return 0
 	}
@@ -114,11 +114,16 @@ func (o *Observer) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-// Exchanges returns the exchanges observed so far, oldest first.
-func (o *Observer) Exchanges() []*Exchange {
+// Exchanges returns copies of the exchanges observed so far, oldest first, taken under the lock that RoundTrip
+// writes them under. It is safe to call while requests are in flight.
+func (o *Observer) Exchanges() []Exchange {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return slices.Clone(o.exchanges)
+	out := make([]Exchange, len(o.exchanges))
+	for i, ex := range o.exchanges {
+		out[i] = *ex
+	}
+	return out
 }
 
 // Reset forgets the observed exchanges.

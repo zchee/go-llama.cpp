@@ -16,7 +16,9 @@
 // without changing it.
 //
 // Start launches the binary named by LLAMA_SERVER_BIN (default: llama-server on PATH) on a free local port or on
-// a UNIX socket, waits until GET /health answers 200 and returns a Server; Stop ends the process. Server.Client
+// a UNIX socket, waits until GET /health answers 200 and returns a Server; Stop ends the process. The server runs
+// under a supervisor that stops it when the starting process exits for any reason (see supervise.go), so a test
+// that panics or is killed leaves no server behind. Server.Client
 // returns a llama.Client whose transport is an Observer, a RoundTripper that records each exchange (method, path,
 // query, headers and whether the response body was closed) and forwards it to a real http.Transport.
 //
@@ -80,13 +82,15 @@ type Server struct {
 	// APIKey is the key the server was started with, empty when it needs none.
 	APIKey string
 
-	dir      string
-	logPath  string
-	cmd      *exec.Cmd
-	done     chan struct{}
-	waitErr  error
-	stopOnce sync.Once
-	stopErr  error
+	dir       string
+	logPath   string
+	cmd       *exec.Cmd
+	ownerPipe *os.File
+	pid       int
+	done      chan struct{}
+	waitErr   error
+	stopOnce  sync.Once
+	stopErr   error
 }
 
 // Bin returns the llama-server binary to run.
@@ -155,22 +159,41 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	}
 	args = append(args, opts.Args...)
 
+	self, err := os.Executable()
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, fmt.Errorf("harness: locating the supervisor binary: %w", err)
+	}
 	logFile, err := os.Create(s.logPath)
 	if err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	// The process writes its output straight into the file, so no goroutine copies pipes.
-	s.cmd = exec.Command(bin, args...)
+	// The read end becomes the supervisor's standard input; this process keeps the only write end (os.Pipe sets
+	// close-on-exec, so no other child inherits it). See init in supervise.go.
+	ownerRead, ownerWrite, err := os.Pipe()
+	if err != nil {
+		_ = logFile.Close()
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	// The processes write their output straight into the file, so no goroutine copies pipes.
+	s.cmd = exec.Command(self, append([]string{bin}, args...)...)
+	s.cmd.Env = append(os.Environ(), envSupervise+"=1")
+	s.cmd.Stdin = ownerRead
 	s.cmd.Stdout = logFile
 	s.cmd.Stderr = logFile
 	s.cmd.Dir = dir
-	if err := s.cmd.Start(); err != nil {
-		_ = logFile.Close()
-		_ = os.RemoveAll(dir)
-		return nil, fmt.Errorf("harness: starting %s: %w", bin, err)
-	}
+	s.cmd.SysProcAttr = sysProcAttr()
+	err = s.cmd.Start()
 	_ = logFile.Close()
+	_ = ownerRead.Close()
+	if err != nil {
+		_ = ownerWrite.Close()
+		_ = os.RemoveAll(dir)
+		return nil, fmt.Errorf("harness: starting the supervisor of %s: %w", bin, err)
+	}
+	s.ownerPipe = ownerWrite
 	go func() {
 		s.waitErr = s.cmd.Wait()
 		close(s.done)
@@ -181,8 +204,18 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		timeout = DefaultStartTimeout
 	}
 	if err := s.waitReady(ctx, timeout); err != nil {
+		// Stop removes the log, so its tail is read first.
+		tail := s.LogTail(4096)
 		stopErr := s.Stop()
-		return nil, errors.Join(fmt.Errorf("harness: server %s did not become ready: %w\n--- server log tail ---\n%s", s.URL, err, s.LogTail(4096)), stopErr)
+		return nil, errors.Join(fmt.Errorf("harness: server %s did not become ready: %w\n--- server log tail ---\n%s", s.URL, err, tail), stopErr)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, pidFile))
+	if err == nil {
+		s.pid, err = strconv.Atoi(string(data))
+	}
+	if err != nil {
+		tail := s.LogTail(4096)
+		return nil, errors.Join(fmt.Errorf("harness: reading the llama-server PID: %w\n--- server log tail ---\n%s", err, tail), s.Stop())
 	}
 	return s, nil
 }
@@ -260,23 +293,29 @@ func (s *Server) Client(t testing.TB, opts ...llama.ClientOption) (*llama.Client
 	return c, obs
 }
 
-// Stop interrupts the process, kills it if it does not exit in time, waits for it and removes its files. It is
-// safe to call more than once.
+// PID returns the process ID of llama-server.
+func (s *Server) PID() int {
+	return s.pid
+}
+
+// Stop ends the server through its supervisor: closing the owner pipe makes the supervisor interrupt llama-server
+// and kill it if it does not exit in time. Stop then waits for the supervisor and removes the server's files. It
+// is safe to call more than once.
 func (s *Server) Stop() error {
 	s.stopOnce.Do(func() {
+		_ = s.ownerPipe.Close()
+		// The supervisor needs at most stopTimeout; the margin covers its own exit.
+		timer := time.NewTimer(stopTimeout + 10*time.Second)
 		select {
 		case <-s.done:
-		default:
-			_ = s.cmd.Process.Signal(os.Interrupt)
-			timer := time.NewTimer(stopTimeout)
-			select {
-			case <-s.done:
-				timer.Stop()
-			case <-timer.C:
-				_ = s.cmd.Process.Kill()
-				<-s.done
-				s.stopErr = fmt.Errorf("harness: llama-server did not exit within %v of an interrupt and was killed", stopTimeout)
-			}
+			timer.Stop()
+		case <-timer.C:
+			killGroup(s.cmd.Process.Pid)
+			<-s.done
+			s.stopErr = errors.New("harness: the llama-server supervisor did not exit and its process group was killed")
+		}
+		if ee, ok := errors.AsType[*exec.ExitError](s.waitErr); ok && ee.ExitCode() == exitKilled && s.stopErr == nil {
+			s.stopErr = fmt.Errorf("harness: llama-server did not exit within %v of an interrupt and was killed", stopTimeout)
 		}
 		if err := os.RemoveAll(s.dir); err != nil && s.stopErr == nil {
 			s.stopErr = err

@@ -93,6 +93,16 @@ func TestAuthentication(t *testing.T) {
 					t.Errorf("request carried %s as well", other)
 				}
 			}
+			// The request log records the HTTP status of the protected call, error responses included.
+			var propsLine string
+			for line := range strings.Lines(logs.String()) {
+				if strings.Contains(line, "path=/props") {
+					propsLine = line
+				}
+			}
+			if !strings.Contains(propsLine, fmt.Sprintf("status=%d", tt.wantStatus)) {
+				t.Errorf("request log line of /props lacks status=%d: %q", tt.wantStatus, propsLine)
+			}
 			for _, out := range []string{fmt.Sprint(err), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", c), logs.String()} {
 				if strings.Contains(out, testAPIKey) {
 					t.Errorf("the API key appears in output: %s", out)
