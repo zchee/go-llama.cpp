@@ -16,6 +16,8 @@ package integration
 
 import (
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"iter"
 	"os"
 	"path/filepath"
@@ -64,41 +66,84 @@ func TestRealtimeFullDuplex(t *testing.T) {
 	if opened.Type != realtime.ResponseCreated || opened.Response == nil || opened.Response.ID == "" {
 		t.Fatalf("first audio append did not open a response: %+v", opened)
 	}
-	// Send more input to the open response without a turn commit or response.create.
-	if err := s.AppendAudio(t.Context(), pcm); err != nil {
+	appendAudio := func() error { return s.AppendAudio(t.Context(), pcm) }
+	cancelResponse := func() error { return s.CancelResponse(t.Context()) }
+	if err := checkDuplexResponse(opened.Response.ID, read, appendAudio, cancelResponse); err != nil {
 		t.Fatal(err)
 	}
-	id := opened.Response.ID
-	var canceled, audioDone bool
+}
+
+func checkDuplexResponse(id string, read func() realtime.ServerEvent, appendAudio, cancelResponse func() error) error {
+	var appendedAgain, canceled, audioDone bool
 	for {
 		ev := read()
 		switch ev.Type {
 		case realtime.ResponseCreated:
-			t.Fatal("an append opened a second response before cancellation")
+			return errors.New("an append opened a second response before cancellation")
 		case realtime.ResponseOutputAudioDelta:
 			if audioDone || ev.ResponseID == nil || *ev.ResponseID != id || ev.Delta == nil {
-				t.Fatalf("unexpected audio delta: %+v", ev)
+				return fmt.Errorf("unexpected audio delta: %+v", ev)
 			}
 			b, err := base64.StdEncoding.DecodeString(*ev.Delta)
-			if err != nil || len(b) == 0 || len(b)%2 != 0 {
-				t.Fatalf("invalid PCM16 audio delta (%d bytes): %v", len(b), err)
+			if err != nil {
+				return fmt.Errorf("decoding audio delta: %w", err)
+			}
+			if len(b) == 0 || len(b)%2 != 0 {
+				return fmt.Errorf("invalid PCM16 audio delta length: %d", len(b))
+			}
+			if !appendedAgain {
+				if err := appendAudio(); err != nil {
+					return err
+				}
+				appendedAgain = true
+				continue
 			}
 			if !canceled {
-				if err := s.CancelResponse(t.Context()); err != nil {
-					t.Fatal(err)
+				if err := cancelResponse(); err != nil {
+					return err
 				}
 				canceled = true
 			}
 		case realtime.ResponseOutputAudioDone:
 			if !canceled || audioDone || ev.ResponseID == nil || *ev.ResponseID != id {
-				t.Fatalf("unexpected output_audio.done: %+v", ev)
+				return fmt.Errorf("unexpected output_audio.done: %+v", ev)
 			}
 			audioDone = true
 		case realtime.ResponseDone:
 			if !audioDone || ev.Response == nil || ev.Response.ID != id || ev.Response.Status != "cancelled" {
-				t.Fatalf("response.done after audio done=%t: %+v", audioDone, ev.Response)
+				return fmt.Errorf("response.done after audio done=%t: %+v", audioDone, ev.Response)
 			}
-			return
+			return nil
 		}
+	}
+}
+
+func TestDuplexResponseSequence(t *testing.T) {
+	tests := map[string]struct {
+		deltas       int
+		wantCancelAt int
+	}{
+		"error: output only before second append":        {deltas: 1},
+		"success: output before and after second append": {deltas: 2, wantCancelAt: 2},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			const id = "response"
+			var events []realtime.ServerEvent
+			for range tt.deltas {
+				events = append(events, realtime.ServerEvent{Type: realtime.ResponseOutputAudioDelta, ResponseID: new(id), Delta: new("AAA=")})
+			}
+			events = append(events, realtime.ServerEvent{Type: realtime.ResponseOutputAudioDone, ResponseID: new(id)},
+				realtime.ServerEvent{Type: realtime.ResponseDone, Response: &realtime.Response{ID: id, Status: "cancelled"}})
+			var reads, appendAt, cancelAt int
+			read := func() realtime.ServerEvent {
+				reads++
+				return events[reads-1]
+			}
+			err := checkDuplexResponse(id, read, func() error { appendAt = reads; return nil }, func() error { cancelAt = reads; return nil })
+			if (err != nil) != (tt.wantCancelAt == 0) || appendAt != 1 || cancelAt != tt.wantCancelAt {
+				t.Errorf("second append after event %d, cancel after event %d, error %v", appendAt, cancelAt, err)
+			}
+		})
 	}
 }
