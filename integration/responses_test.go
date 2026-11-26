@@ -93,6 +93,41 @@ func TestResponsesAliases(t *testing.T) {
 	}
 }
 
+func TestResponsesReasoningHistory(t *testing.T) {
+	c, _ := presetStories260K.server(t).Client(t)
+	client := openai.NewClient(c)
+	tests := map[string]struct {
+		summary []jsontext.Value
+	}{
+		"success: omitted summary": {},
+		"success: explicit summary": {summary: []jsontext.Value{
+			jsontext.Value(`{"type":"summary_text","text":"Recall the greeting."}`),
+		}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			req := &openai.ResponsesRequest{
+				Input: openai.ResponseInput{List: []openai.ResponseItem{
+					{Value: &openai.ResponseMessage{Role: "user", Content: openai.ResponseContent{Text: new("Say hello.")}}},
+					{Value: &openai.ResponseReasoningItem{Type: "reasoning", Summary: tt.summary, Content: []openai.ResponsePart{
+						{Value: &openai.ResponseTextPart{Type: "reasoning_text", Text: "Recall the greeting."}},
+					}}},
+					{Value: &openai.ResponseMessage{Type: "message", Role: "assistant", Content: openai.ResponseContent{Text: new("Hello!")}}},
+					{Value: &openai.ResponseMessage{Role: "user", Content: openai.ResponseContent{Text: new("Say it again.")}}},
+				}},
+				MaxOutputTokens: new(4),
+			}
+			got, err := client.Responses(t.Context(), req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != "completed" || len(got.Output) == 0 {
+				t.Fatalf("expected a completed response, got %+v", got)
+			}
+		})
+	}
+}
+
 func TestResponsesRejectPreviousID(t *testing.T) {
 	c, _ := presetStories260K.server(t).Client(t)
 	oc := openai.NewClient(c)

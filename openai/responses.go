@@ -29,7 +29,8 @@ import (
 // it does not store previous responses or resolve previous_response_id.
 type ResponsesRequest struct {
 	llama.SamplingParams
-	Model             *string                   `json:"model,omitzero"`
+	// Model selects the model in router mode.
+	Model             string                    `json:"model,omitzero"`
 	Input             ResponseInput             `json:"input"`
 	Instructions      *string                   `json:"instructions,omitzero"`
 	MaxOutputTokens   *int                      `json:"max_output_tokens,omitzero"`

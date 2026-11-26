@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	llama "github.com/zchee/go-llama.cpp"
 	"github.com/zchee/go-llama.cpp/internal/jsontest"
@@ -136,26 +137,33 @@ func responsesCheckStream(t *testing.T, data []byte) {
 func TestResponsesUnknownKinds(t *testing.T) {
 	// Give future kinds incompatible values for fields used by today's kinds: decoding them as
 	// known variants would either fail or change the payload.
-	data := []byte(`{"content":false,"delta":{"nested":1},"type":"future","item_id":[2],"arguments":17}`)
+	tagged := []byte(`{"content":false,"delta":{"nested":1},"type":"future","item_id":[2],"arguments":17}`)
+	untagged := []byte(`{"content":false,"delta":{"nested":1},"item_id":[2],"arguments":17}`)
+	item := func(t *testing.T, data []byte) *openai.ResponseUnknown {
+		v, _ := jsontest.RoundTrip[openai.ResponseItem](t, data).Value.(*openai.ResponseUnknown)
+		return v
+	}
+	event := func(t *testing.T, data []byte) *openai.ResponseUnknown {
+		v, _ := jsontest.RoundTrip[openai.ResponseEvent](t, data).Value.(*openai.ResponseUnknown)
+		return v
+	}
+	part := func(t *testing.T, data []byte) *openai.ResponseUnknown {
+		v, _ := jsontest.RoundTrip[openai.ResponsePart](t, data).Value.(*openai.ResponseUnknown)
+		return v
+	}
 	tests := map[string]struct {
-		unknown func() *openai.ResponseUnknown
+		data    []byte
+		unknown func(*testing.T, []byte) *openai.ResponseUnknown
 	}{
-		"success: future item": {func() *openai.ResponseUnknown {
-			v, _ := jsontest.RoundTrip[openai.ResponseItem](t, data).Value.(*openai.ResponseUnknown)
-			return v
-		}},
-		"success: future event": {func() *openai.ResponseUnknown {
-			v, _ := jsontest.RoundTrip[openai.ResponseEvent](t, data).Value.(*openai.ResponseUnknown)
-			return v
-		}},
-		"success: future part": {func() *openai.ResponseUnknown {
-			v, _ := jsontest.RoundTrip[openai.ResponsePart](t, data).Value.(*openai.ResponseUnknown)
-			return v
-		}},
+		"success: future item":    {tagged, item},
+		"success: future event":   {tagged, event},
+		"success: future part":    {tagged, part},
+		"success: untagged event": {untagged, event},
+		"success: untagged part":  {untagged, part},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			v := tt.unknown()
+			v := tt.unknown(t, tt.data)
 			if v == nil || len(v.Extra) != 4 {
 				t.Fatalf("expected opaque payload, got %+v", v)
 			}
@@ -172,8 +180,8 @@ func TestResponsesNewRequest(t *testing.T) {
 		path, fixture string
 		body          openai.ResponsesRequest
 	}{
-		"success: create with explicit zero temperature": {path: "/v1/responses", fixture: "responses/basic", body: openai.ResponsesRequest{Model: new("responses-test"), Input: openai.ResponseInput{Text: new("Once upon a time")}, Instructions: new("Write briefly."), MaxOutputTokens: new(5), Temperature: new(0.0), ExtraParams: &openai.ResponseExtraParams{Seed: new(int64(42))}}},
-		"success: count without generating":              {path: "/v1/responses/input_tokens", fixture: "responses_input_tokens/basic", body: openai.ResponsesRequest{Model: new("tinyllama-2"), Input: openai.ResponseInput{Text: new("Hello there")}}},
+		"success: create with explicit zero temperature": {path: "/v1/responses", fixture: "responses/basic", body: openai.ResponsesRequest{Model: "responses-test", Input: openai.ResponseInput{Text: new("Once upon a time")}, Instructions: new("Write briefly."), MaxOutputTokens: new(5), Temperature: new(0.0), ExtraParams: &openai.ResponseExtraParams{Seed: new(int64(42))}}},
+		"success: count without generating":              {path: "/v1/responses/input_tokens", fixture: "responses_input_tokens/basic", body: openai.ResponsesRequest{Model: "tinyllama-2", Input: openai.ResponseInput{Text: new("Hello there")}}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -204,12 +212,36 @@ func TestResponsesNewRequest(t *testing.T) {
 	}
 }
 
+func TestResponsesModelOmission(t *testing.T) {
+	tests := map[string]struct {
+		input, want string
+	}{
+		"success: omitted model": {input: `{"input":"hello"}`, want: `{"input":"hello"}`},
+		"success: empty model":   {input: `{"model":"","input":"hello"}`, want: `{"input":"hello"}`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var req openai.ResponsesRequest
+			if err := json.Unmarshal([]byte(tt.input), &req); err != nil {
+				t.Fatal(err)
+			}
+			got, err := json.Marshal(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(tt.want, string(got)); diff != "" {
+				t.Errorf("request (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func ExampleClient_Responses() {
 	c, err := llama.New("http://127.0.0.1:8080")
 	if err != nil {
 		log.Fatal(err)
 	}
-	r, err := openai.NewClient(c).Responses(context.Background(), &openai.ResponsesRequest{Input: openai.ResponseInput{Text: new("How does a sundial work?")}})
+	r, err := openai.NewClient(c).Responses(context.Background(), &openai.ResponsesRequest{Model: "stories", Input: openai.ResponseInput{Text: new("How does a sundial work?")}})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -225,7 +257,7 @@ func ExampleClient_Responses() {
 }
 
 // Check the decoded value rather than the source bytes: a valid custom codec may normalize the spelling.
-func responsesFuzz[T any](f *testing.F) {
+func responsesFuzz[T any](f *testing.F, opts ...gocmp.Option) {
 	f.Helper()
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var first, second T
@@ -246,7 +278,7 @@ func responsesFuzz[T any](f *testing.F) {
 			}
 			return string(b)
 		})
-		if diff := gocmp.Diff(first, second, compactRaw); diff != "" {
+		if diff := gocmp.Diff(first, second, compactRaw, gocmp.Options(opts)); diff != "" {
 			t.Fatalf("decoded values changed (-first +second):\n%s", diff)
 		}
 	})
@@ -275,7 +307,12 @@ func FuzzResponsesItem(f *testing.F) {
 			f.Add([]byte(item))
 		}
 	}
-	responsesFuzz[openai.ResponseItem](f)
+	f.Add([]byte(`{"type":"reasoning","content":[{"type":"reasoning_text","text":"test"}]}`))
+	// An omitted summary and an empty array both encode as an empty array.
+	responsesFuzz[openai.ResponseItem](f, gocmp.FilterPath(func(p gocmp.Path) bool {
+		field, ok := p.Last().(gocmp.StructField)
+		return ok && field.Name() == "Summary"
+	}, cmpopts.EquateEmpty()))
 }
 
 func FuzzResponsesContent(f *testing.F) {

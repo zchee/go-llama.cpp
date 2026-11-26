@@ -101,18 +101,28 @@ type ResponseFunctionOutput struct {
 
 // ResponseReasoningItem is a reasoning item. The server reads the first content part's text from history.
 type ResponseReasoningItem struct {
-	Type             string                    `json:"type"`
-	ID               *string                   `json:"id,omitzero"`
-	Status           *string                   `json:"status,omitzero"`
-	Summary          []jsontext.Value          `json:"summary,omitzero"`
+	Type   string  `json:"type"`
+	ID     *string `json:"id,omitzero"`
+	Status *string `json:"status,omitzero"`
+	// Summary is always an array on the wire so the server can identify reasoning items in history.
+	Summary          []jsontext.Value          `json:"summary"`
 	Content          []ResponsePart            `json:"content,omitzero"`
 	EncryptedContent *string                   `json:"encrypted_content,omitzero"`
 	Extra            map[string]jsontext.Value `json:",embed"`
 }
 
+// MarshalJSONTo writes the summary as an array, including when it is nil.
+func (i ResponseReasoningItem) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if i.Summary == nil {
+		i.Summary = []jsontext.Value{}
+	}
+	type wire ResponseReasoningItem
+	return json.MarshalEncode(enc, wire(i))
+}
+
 // ResponseUnknown preserves the fields of an unrecognized item, part or event without interpreting them.
 type ResponseUnknown struct {
-	Type  string                    `json:"type"`
+	Type  string                    `json:"type,omitzero"`
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
