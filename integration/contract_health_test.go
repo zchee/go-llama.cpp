@@ -14,5 +14,27 @@
 
 package integration
 
-// audioDecisionContracts holds the contract cases of the speech (/tts, /v1/audio/speech) and System One endpoints. See contractCase for the key format.
-var audioDecisionContracts = map[string]contractCase{}
+import (
+	"fmt"
+	"testing"
+
+	llama "github.com/zchee/go-llama.cpp"
+)
+
+// The contract cases of GET /health. Copy this file to add the cases of other endpoints: name it
+// contract_<name>_test.go, register its cases with registerContracts, and call only typed methods.
+var _ = registerContracts(map[string]contractCase{
+	"GET /health": {
+		server: presetStories260K,
+		call: func(t *testing.T, c *llama.Client) error {
+			res, err := c.Health(t.Context())
+			if err != nil {
+				return err
+			}
+			if res.Status != "ok" {
+				return fmt.Errorf("status = %q, want %q", res.Status, "ok")
+			}
+			return nil
+		},
+	},
+})

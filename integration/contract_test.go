@@ -22,10 +22,12 @@ import (
 	"go/parser"
 	"go/token"
 	"maps"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -56,33 +58,59 @@ type contractCase struct {
 	query url.Values
 }
 
-// contractTables returns the contract tables of the endpoint groups, keyed by the file that holds them.
-func contractTables() map[string]map[string]contractCase {
-	return map[string]map[string]contractCase{
-		"contract_native_inference_test.go": nativeInferenceContracts,
-		"contract_native_admin_test.go":     nativeAdminContracts,
-		"contract_audio_decision_test.go":   audioDecisionContracts,
-		"contract_openai_test.go":           openaiContracts,
-		"contract_anthropic_test.go":        anthropicContracts,
-		"contract_realtime_test.go":         realtimeContracts,
-	}
+// contractRegistration is one call of registerContracts.
+type contractRegistration struct {
+	// file is the base name of the file that registered the cases.
+	file  string
+	cases map[string]contractCase
 }
 
-// allContracts merges the contract tables and fails the test when two tables cover the same endpoint.
-func allContracts(t *testing.T) map[string]contractCase {
-	t.Helper()
-	all := map[string]contractCase{}
+// contractRegistrations holds every registration, in package initialisation order.
+var contractRegistrations []contractRegistration
+
+// registerContracts records contract cases for the endpoints of one contract_<name>_test.go file. It is meant as a
+// package-level variable initialiser:
+//
+//	var _ = registerContracts(map[string]contractCase{
+//		"GET /health": {server: presetStories260K, call: func(t *testing.T, c *llama.Client) error { ... }},
+//	})
+//
+// The file is taken from the caller, so a registration cannot claim another file; TestContractFilesUseTypedMethods
+// checks that it is one of the contract files it parses.
+func registerContracts(cases map[string]contractCase) struct{} {
+	file := "unknown"
+	if _, path, _, ok := runtime.Caller(1); ok {
+		file = filepath.Base(path)
+	}
+	contractRegistrations = append(contractRegistrations, contractRegistration{file: file, cases: cases})
+	return struct{}{}
+}
+
+// mergeContracts merges registrations into one table. problems names every endpoint that two registrations
+// cover, with both files.
+func mergeContracts(regs []contractRegistration) (all map[string]contractCase, problems []string) {
+	all = map[string]contractCase{}
 	owner := map[string]string{}
-	tables := contractTables()
-	for _, file := range slices.Sorted(maps.Keys(tables)) {
-		for key, c := range tables[file] {
+	for _, reg := range regs {
+		for _, key := range slices.Sorted(maps.Keys(reg.cases)) {
 			if prev, ok := owner[key]; ok {
-				t.Errorf("endpoint %q has contract cases in both %s and %s", key, prev, file)
+				problems = append(problems, fmt.Sprintf("endpoint %q has contract cases in both %s and %s", key, prev, reg.file))
 				continue
 			}
-			owner[key] = file
-			all[key] = c
+			owner[key] = reg.file
+			all[key] = reg.cases[key]
 		}
+	}
+	return all, problems
+}
+
+// allContracts merges the registered contract cases and fails the test when two registrations cover the same
+// endpoint.
+func allContracts(t *testing.T) map[string]contractCase {
+	t.Helper()
+	all, problems := mergeContracts(contractRegistrations)
+	for _, p := range problems {
+		t.Error(p)
 	}
 	return all
 }
@@ -208,24 +236,25 @@ func parseEndpointKey(key string) (*route, error) {
 	return r, nil
 }
 
-// matches reports whether an observed exchange took the route and carried the required query parameters.
-func (r *route) matches(ex *harness.Exchange, extra url.Values) bool {
+// matches reports whether an observed exchange took the route and carried the required query parameters, each
+// with exactly the required values.
+func (r *route) matches(ex harness.Exchange, extra url.Values) bool {
 	if ex.Method != r.method || !r.path.MatchString(ex.Path) || ex.Upgrade() != r.websocket {
 		return false
 	}
+	// The server keeps only one value of a repeated query parameter (the last, in get_params of server-http.cpp),
+	// so a parameter the key names must be sent exactly as named, not among other values.
 	for _, q := range []url.Values{r.query, extra} {
 		for k, want := range q {
-			for _, v := range want {
-				if !slices.Contains(ex.Query[k], v) {
-					return false
-				}
+			if !slices.Equal(ex.Query[k], want) {
+				return false
 			}
 		}
 	}
 	return true
 }
 
-func describe(exchanges []*harness.Exchange) string {
+func describe(exchanges []harness.Exchange) string {
 	lines := make([]string, len(exchanges))
 	for i, ex := range exchanges {
 		lines[i] = fmt.Sprintf("%s %s?%s upgrade=%t status=%d err=%v", ex.Method, ex.Path, ex.Query.Encode(), ex.Upgrade(), ex.StatusCode, ex.Err)
@@ -288,14 +317,12 @@ var lowLevelBridge = []string{"Call", "Stream", "CallRaw"}
 // TestContractFilesUseTypedMethods parses the contract files and fails for every reference to the low-level
 // bridge, which would satisfy a contract without a typed method.
 func TestContractFilesUseTypedMethods(t *testing.T) {
-	files, err := filepath.Glob("contract*_test.go")
+	files, err := contractFiles(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for file := range contractTables() {
-		if !slices.Contains(files, file) {
-			t.Errorf("contract table file %s does not exist", file)
-		}
+	for _, problem := range unlistedRegistrations(contractRegistrations, files) {
+		t.Error(problem)
 	}
 	fset := token.NewFileSet()
 	for _, file := range files {
@@ -306,6 +333,112 @@ func TestContractFilesUseTypedMethods(t *testing.T) {
 		for _, v := range bridgeReferences(fset, f) {
 			t.Errorf("%s: contract files must call typed methods, not the low-level llama.%s", v.pos, v.name)
 		}
+	}
+}
+
+// contractFiles lists the contract_<name>_test.go files of dir, without contract_test.go itself, which holds the
+// test machinery and no cases.
+func contractFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.Type().IsRegular() && name != "contract_test.go" && strings.HasPrefix(name, "contract_") && strings.HasSuffix(name, "_test.go") {
+			files = append(files, name)
+		}
+	}
+	return files, nil
+}
+
+// unlistedRegistrations reports registrations made from a file that is not among the parsed contract files, which
+// would escape the check for typed methods.
+func unlistedRegistrations(regs []contractRegistration, files []string) []string {
+	var problems []string
+	for _, reg := range regs {
+		if !slices.Contains(files, reg.file) {
+			problems = append(problems, fmt.Sprintf("contract cases registered from %s, which is not a contract_<name>_test.go file of the package directory; move them into one", reg.file))
+		}
+	}
+	return problems
+}
+
+func TestMergeContracts(t *testing.T) {
+	health := contractCase{server: presetStories260K}
+	tests := map[string]struct {
+		regs         []contractRegistration
+		wantKeys     []string
+		wantProblems []string
+	}{
+		"success: disjoint files": {
+			regs: []contractRegistration{
+				{file: "contract_a_test.go", cases: map[string]contractCase{"GET /health": health}},
+				{file: "contract_b_test.go", cases: map[string]contractCase{"GET /props": health}},
+			},
+			wantKeys: []string{"GET /health", "GET /props"},
+		},
+		"error: one key in two files": {
+			regs: []contractRegistration{
+				{file: "contract_a_test.go", cases: map[string]contractCase{"GET /health": health}},
+				{file: "contract_b_test.go", cases: map[string]contractCase{"GET /health": health, "GET /props": health}},
+			},
+			wantKeys:     []string{"GET /health", "GET /props"},
+			wantProblems: []string{`endpoint "GET /health" has contract cases in both contract_a_test.go and contract_b_test.go`},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			all, problems := mergeContracts(tt.regs)
+			if got := slices.Sorted(maps.Keys(all)); !slices.Equal(got, tt.wantKeys) {
+				t.Errorf("keys = %v, want %v", got, tt.wantKeys)
+			}
+			if !slices.Equal(problems, tt.wantProblems) {
+				t.Errorf("problems = %q, want %q", problems, tt.wantProblems)
+			}
+		})
+	}
+}
+
+func TestUnlistedRegistrations(t *testing.T) {
+	regs := []contractRegistration{
+		{file: "contract_health_test.go"},
+		{file: "stream_test.go"},
+	}
+	got := unlistedRegistrations(regs, []string{"contract_health_test.go"})
+	if len(got) != 1 || !strings.Contains(got[0], "stream_test.go") {
+		t.Errorf("unlistedRegistrations = %q, want one problem naming stream_test.go", got)
+	}
+	if got := unlistedRegistrations(regs[:1], []string{"contract_health_test.go"}); len(got) != 0 {
+		t.Errorf("a listed file was reported: %q", got)
+	}
+}
+
+// TestRegisterContractsRecordsTheCaller checks that the file comes from the call site.
+func TestRegisterContractsRecordsTheCaller(t *testing.T) {
+	saved := contractRegistrations
+	t.Cleanup(func() { contractRegistrations = saved })
+	contractRegistrations = nil
+	registerContracts(map[string]contractCase{})
+	if len(contractRegistrations) != 1 || contractRegistrations[0].file != "contract_test.go" {
+		t.Errorf("registration = %+v, want one from contract_test.go", contractRegistrations)
+	}
+}
+
+func TestContractFilesListing(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"contract_test.go", "contract_health_test.go", "contract_x_test.go", "contractx_test.go", "other_test.go", "contract_y.go"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("package p\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := contractFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"contract_health_test.go", "contract_x_test.go"}; !slices.Equal(got, want) {
+		t.Errorf("contractFiles = %v, want %v", got, want)
 	}
 }
 
@@ -386,6 +519,37 @@ func TestBridgeReferences(t *testing.T) {
 			}
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("bridgeReferences = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRouteMatchesQueryExactly checks that a discriminator must be sent alone: the server keeps one value of a
+// repeated parameter, so "action=save&action=erase" would erase.
+func TestRouteMatchesQueryExactly(t *testing.T) {
+	r, err := parseEndpointKey("POST /slots/{id_slot}?action=save")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct {
+		query url.Values
+		extra url.Values
+		want  bool
+	}{
+		"match: the discriminator alone":         {query: url.Values{"action": {"save"}}, want: true},
+		"match: other parameters beside it":      {query: url.Values{"action": {"save"}, "x": {"1"}}, want: true},
+		"no match: repeated with another value":  {query: url.Values{"action": {"save", "erase"}}, want: false},
+		"no match: repeated with the same value": {query: url.Values{"action": {"save", "save"}}, want: false},
+		"no match: other value":                  {query: url.Values{"action": {"erase"}}, want: false},
+		"no match: missing":                      {query: url.Values{}, want: false},
+		"match: required extra parameter":        {query: url.Values{"action": {"save"}, "model": {"m"}}, extra: url.Values{"model": {"m"}}, want: true},
+		"no match: extra parameter among others": {query: url.Values{"action": {"save"}, "model": {"a", "m"}}, extra: url.Values{"model": {"m"}}, want: false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ex := harness.Exchange{Method: http.MethodPost, Path: "/slots/0", Query: tt.query, Header: http.Header{}}
+			if got := r.matches(ex, tt.extra); got != tt.want {
+				t.Errorf("matches(%v, extra %v) = %t, want %t", tt.query, tt.extra, got, tt.want)
 			}
 		})
 	}
