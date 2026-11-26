@@ -15,11 +15,16 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"errors"
+	"io"
+	"net"
 	"net/http"
+	"sync"
 	"testing"
+	"time"
 
 	llama "github.com/zchee/go-llama.cpp"
 )
@@ -38,6 +43,89 @@ var streamRequest = map[string]any{
 	"n_predict":  256,
 	"ignore_eos": true,
 	"stream":     true,
+}
+
+// Observe the socket write rather than a buffered HTTP write: the designated body byte has
+// reached the connection, but net/http cannot have finished a longer upload yet.
+type cancelWriteConn struct {
+	net.Conn
+	cancel context.CancelFunc
+	after  byte
+}
+
+func (c *cancelWriteConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if n > 0 && p[n-1] == c.after {
+		c.cancel()
+	}
+	return n, err
+}
+
+type streamRequestBody struct {
+	io.ReadCloser
+	notify func()
+}
+
+func (b *streamRequestBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.notify()
+	return err
+}
+
+type streamRequestTransport struct {
+	*http.Transport
+	closed chan struct{}
+}
+
+func (tr *streamRequestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Body = &streamRequestBody{req.Body, sync.OnceFunc(func() { close(tr.closed) })}
+	return tr.Transport.RoundTrip(req)
+}
+
+func TestStreamCancelInFlight(t *testing.T) {
+	srv := presetStories260K.server(t)
+	tests := map[string]struct{ after byte }{
+		"error: during upload":       {after: ' '},
+		"error: waiting for headers": {after: '}'},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			tr := &streamRequestTransport{http.DefaultTransport.(*http.Transport).Clone(), make(chan struct{})}
+			dial := tr.DialContext
+			tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				conn, err := dial(ctx, network, addr)
+				if err != nil {
+					return nil, err
+				}
+				return &cancelWriteConn{conn, cancel, tt.after}, nil
+			}
+			t.Cleanup(tr.CloseIdleConnections)
+			c, err := llama.New(srv.URL, llama.WithHTTPClient(&http.Client{Transport: tr, Timeout: 10 * time.Second}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// JSON whitespace larger than the transport buffer makes the upload span multiple socket writes.
+			// A non-streamed completion holds the response headers until generation ends.
+			body := llama.Body{ContentType: "application/json", Data: append(bytes.Repeat([]byte{' '}, 128<<10), `{"prompt":"Once upon a time","n_predict":256,"ignore_eos":true}`...)}
+			var yields int
+			for event, err := range llama.Stream[streamChunk](ctx, c, http.MethodPost, "/completion", body, llama.WithNoRetry()) {
+				yields++
+				if event != nil || !errors.Is(err, context.Canceled) {
+					t.Errorf("stream yielded (%v, %v), want (nil, context.Canceled)", event, err)
+				}
+			}
+			if yields != 1 {
+				t.Errorf("stream yielded %d results, want one cancellation", yields)
+			}
+			select {
+			case <-tr.closed:
+			case <-time.After(time.Second):
+				t.Error("request body was not closed")
+			}
+		})
+	}
 }
 
 // TestStreamOwnership checks when a stream opens and closes its response against a real server, through the
