@@ -381,13 +381,19 @@ func Call[Resp any](ctx context.Context, c *Client, method, path string, body an
 	return out, nil
 }
 
-// CallRaw sends a request and returns the response with a 2xx status as is; the caller must close its Body. A
-// non-2xx status is returned as an *APIError and the body is closed. It serves endpoints whose responses are not
-// JSON, such as audio and Prometheus metrics.
+// CallRaw sends a request and returns the response with a 2xx status without decoding its body. The caller must
+// close the Body. When an API key is configured, the Body is wrapped to redact errors from Read, Close, and WriteTo
+// if supported by the original Body. A non-2xx status is returned as an *APIError and the body is closed.
+// CallRaw serves endpoints whose responses are not JSON, such as audio and Prometheus metrics.
 func CallRaw(ctx context.Context, c *Client, method, path string, body any, opts ...RequestOption) (*http.Response, error) {
 	resp, err := c.do(ctx, method, path, body, "", opts)
 	if err == nil && c.apiKey != nil {
-		resp.Body = &redactedBody{resp.Body, c}
+		b := redactedBody{resp.Body, c}
+		if wt, ok := resp.Body.(io.WriterTo); ok {
+			resp.Body = &redactedWriterToBody{redactedBody: b, writerTo: wt}
+		} else {
+			resp.Body = &b
+		}
 	}
 	return resp, err
 }
@@ -406,3 +412,13 @@ func (b *redactedBody) Read(p []byte) (int, error) {
 }
 
 func (b *redactedBody) Close() error { return b.client.RedactError(b.ReadCloser.Close()) }
+
+type redactedWriterToBody struct {
+	redactedBody
+	writerTo io.WriterTo
+}
+
+func (b *redactedWriterToBody) WriteTo(w io.Writer) (int64, error) {
+	n, err := b.writerTo.WriteTo(w)
+	return n, b.client.RedactError(err)
+}
