@@ -255,6 +255,42 @@ func TestRequestForAttemptReplaysIdenticalBody(t *testing.T) {
 	}
 }
 
+func TestNewRequestOwnsRawBody(t *testing.T) {
+	c, err := New("http://localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct{ body func([]byte) any }{
+		"success: Body":     {func(data []byte) any { return Body{Data: data} }},
+		"success: *Body":    {func(data []byte) any { return &Body{Data: data} }},
+		"success: raw JSON": {func(data []byte) any { return jsontext.Value(data) }},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			data := []byte("123")
+			req, err := c.NewRequest(t.Context(), http.MethodPost, "/x", tt.body(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			first, err := io.ReadAll(req.Body)
+			req.Body.Close()
+			if err != nil || string(first) != "123" {
+				t.Fatalf("first body = %q, %v", first, err)
+			}
+			clear(data)
+			replay, err := req.GetBody()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer replay.Close()
+			got, err := io.ReadAll(replay)
+			if err != nil || !bytes.Equal(first, got) {
+				t.Errorf("replayed body = %q, %v; want %q", got, err, first)
+			}
+		})
+	}
+}
+
 func TestRequestForAttemptWithoutGetBody(t *testing.T) {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost/x", io.NopCloser(strings.NewReader("once")))
 	if err != nil {

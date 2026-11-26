@@ -54,11 +54,11 @@ func encodeBody(body any) ([]byte, string, error) {
 		if b == nil {
 			return nil, "", nil
 		}
-		return b.Data, b.ContentType, nil
+		return bytes.Clone(b.Data), b.ContentType, nil
 	case Body:
-		return b.Data, b.ContentType, nil
+		return bytes.Clone(b.Data), b.ContentType, nil
 	case jsontext.Value:
-		return b, "application/json", nil
+		return b.Clone(), "application/json", nil
 	default:
 		if err := extraguard.Check(body); err != nil {
 			return nil, "", err
