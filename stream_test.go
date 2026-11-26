@@ -101,6 +101,18 @@ func TestReadStreamDialects(t *testing.T) {
 			want:       []chunk{{Content: "a"}},
 			wantAPIErr: &APIError{StatusCode: http.StatusOK, Code: 500, Message: "boom", Type: ErrorTypeServer},
 		},
+		"error: escaped error member name": {
+			stream:     "data: {\"\\u0065rror\":{\"code\":500,\"message\":\"boom\",\"type\":\"server_error\"}}\n\n",
+			wantAPIErr: &APIError{StatusCode: http.StatusOK, Code: 500, Message: "boom", Type: ErrorTypeServer},
+		},
+		"success: error is a string value": {
+			stream: "data: " + `{"content":"error"}` + "\n\n",
+			want:   []chunk{{Content: "error"}},
+		},
+		"success: escaped error is a string value": {
+			stream: "data: {\"content\":\"\\u0065rror\"}\n\n",
+			want:   []chunk{{Content: "error"}},
+		},
 		"error: in-stream context size error": {
 			stream:     "data: {\"error\":{\"code\":400,\"message\":\"too long\",\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":600,\"n_ctx\":512}}\n\n",
 			wantAPIErr: &APIError{StatusCode: http.StatusOK, Code: 400, Message: "too long", Type: ErrorTypeExceedContextSize, NPromptTokens: 600, NCtx: 512},
@@ -177,6 +189,36 @@ func TestReadStreamDialects(t *testing.T) {
 				default:
 					if got.err != nil {
 						t.Errorf("unexpected error: %v", got.err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAPIErrorRawLimit(t *testing.T) {
+	tests := map[string]struct {
+		event, prefix, suffix string
+		code                  int
+	}{
+		"error: inline envelope": {"", `{"error":{"message":"`, `","code":500}}`, 500},
+		"error: named object":    {"event: error\n", `{"message":"`, `","code":500}`, 500},
+		"error: named text":      {"event: error\n", "", "", 0},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, size := range []int{maxErrorBody - 1, maxErrorBody, maxErrorBody + 1} {
+				body := tt.prefix + strings.Repeat("x", size-len(tt.prefix)-len(tt.suffix)) + tt.suffix
+				stream := tt.event + "data: " + body + "\n\n"
+				got := collect(DecodeStream[chunk](strings.NewReader(stream), len(stream)+1))
+				apiErr, ok := errors.AsType[*APIError](got.err)
+				if !ok || apiErr.Code != tt.code {
+					t.Fatalf("size %d: want an APIError with code %d", size, tt.code)
+				}
+				httpErr := ReadAPIError(&http.Response{Body: io.NopCloser(strings.NewReader(body)), StatusCode: http.StatusBadRequest})
+				for path, raw := range map[string][]byte{"stream": apiErr.Raw, "HTTP": httpErr.Raw} {
+					if string(raw) != body[:min(size, maxErrorBody)] {
+						t.Errorf("%s size %d: retained %d bytes, want the first %d", path, size, len(raw), min(size, maxErrorBody))
 					}
 				}
 			}

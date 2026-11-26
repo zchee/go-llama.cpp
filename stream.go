@@ -257,7 +257,7 @@ func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header
 				yield(nil, fmt.Errorf("llama: decoding event: %w", err))
 				return
 			}
-			if ev.Data == "null" {
+			if strings.TrimSpace(ev.Data) == "null" {
 				// A native stream announces each result after the first with a bare null
 				// (server_task_result_cmpl_partial::to_json, server-task.cpp:1031-1033): a result
 				// began and its final frame is still owed.
@@ -283,7 +283,7 @@ func eventError(data string, status int, header http.Header) *APIError {
 	raw := []byte(data)
 	var obj errorObject
 	if err := json.Unmarshal(raw, &obj, jsonOptions); err != nil {
-		return &APIError{StatusCode: status, Message: bodySnippet(raw, status), Raw: raw, Header: header}
+		return &APIError{StatusCode: status, Message: bodySnippet(raw, status), Raw: boundedErrorBody(raw), Header: header}
 	}
 	// Some producers wrap the object in {"error": ...} even on a named error event.
 	if obj.Type == "" && obj.Message == "" {
@@ -301,7 +301,8 @@ type errorProbe struct {
 
 // inlineError returns the error carried by a data-only event shaped {"error": {...}}, or nil for any other event.
 func inlineError(payload string, status int, header http.Header) *APIError {
-	if !strings.Contains(payload, `"error"`) {
+	// Only a Unicode escape can spell a letter of "error" without using that letter literally.
+	if !strings.Contains(payload, `"error"`) && !strings.Contains(payload, `\u`) {
 		return nil
 	}
 	data := []byte(payload)

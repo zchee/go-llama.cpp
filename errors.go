@@ -118,6 +118,14 @@ type errorEnvelope struct {
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
+// boundedErrorBody keeps the raw prefix without retaining a larger event buffer.
+func boundedErrorBody(raw []byte) []byte {
+	if len(raw) > maxErrorBody {
+		return bytes.Clone(raw[:maxErrorBody])
+	}
+	return raw
+}
+
 // newAPIError builds an APIError from an error object.
 func newAPIError(status int, obj *errorObject, raw []byte, header http.Header) *APIError {
 	return &APIError{
@@ -127,7 +135,7 @@ func newAPIError(status int, obj *errorObject, raw []byte, header http.Header) *
 		Type:          obj.Type,
 		NPromptTokens: obj.NPromptTokens,
 		NCtx:          obj.NCtx,
-		Raw:           raw,
+		Raw:           boundedErrorBody(raw),
 		Header:        header,
 	}
 }

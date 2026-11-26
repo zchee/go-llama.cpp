@@ -80,6 +80,33 @@ func TestStreamEndNativeFixtureCuts(t *testing.T) {
 	}
 }
 
+func TestProjectedStreamNullDoesNotFinishResult(t *testing.T) {
+	data := string(jsontest.ReadFile(t, "testdata/completion/projected_stream.resp.sse"))
+	begin, frames, ok := strings.Cut(data, "\n\n")
+	if !ok || begin != "data: null" {
+		t.Fatalf("expected a recorded null frame, got %q", begin)
+	}
+	partial, frames, _ := strings.Cut(frames, "\n\n")
+	final, _, _ := strings.Cut(frames, "\n\n")
+	// One result finishes; the second starts but never finishes.
+	prefix := partial + "\n\n" + final + "\n\n"
+	tests := map[string]struct{ begin string }{
+		"error: recorded null": {begin},
+		"error: padded null":   {strings.Replace(begin, "null", "\t null \t", 1)},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var last error
+			for _, err := range DecodeEndpointStream[CompletionResponse](strings.NewReader(prefix+tt.begin+"\n\n"), 0, "/completion", 2, "content") {
+				last = err
+			}
+			if !errors.Is(last, ErrIncompleteStream) {
+				t.Errorf("stream ended with %v, want ErrIncompleteStream", last)
+			}
+		})
+	}
+}
+
 func TestStreamEndMarkers(t *testing.T) {
 	tests := map[string]struct {
 		path, stream   string
