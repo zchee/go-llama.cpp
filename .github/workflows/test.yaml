@@ -1,0 +1,111 @@
+name: test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27.x"
+  # llama.cpp v1.1.0 is commit 171527522610996f5f0acf12334e185156ca8f44; its binaries are published under the
+  # build tag of the same commit.
+  LLAMA_BUILD: b12774
+  LLAMA_ASSET_SHA256: ab5837cca2317cfb7ecb5f85b550934e7355cd9df74cdde6e106581457034dbb
+
+jobs:
+  lint:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: gofmt
+        run: test -z "$(gofmt -s -l . | tee /dev/stderr)"
+      - name: gofumpt
+        run: test -z "$(go run mvdan.cc/gofumpt@v0.12.0 -l -extra . | tee /dev/stderr)"
+      - name: modernize
+        run: go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@v0.53.0 -test ./... ./integration/...
+      - name: go vet
+        run: go vet ./... ./integration/...
+      - name: go vet (integration without the workspace)
+        run: GOWORK=off go -C integration vet ./...
+      - name: endpoint list is complete
+        run: test "$(grep -cv '^#' testdata/endpoints.v1.1.0.txt)" -eq 38
+      - name: official SDKs stay out of the library
+        run: |
+          if GOWORK=off go list -deps ./... | grep -E 'openai-go|anthropic-sdk-go'; then exit 1; fi
+          if GOWORK=off go list -m all | grep -E 'openai-go|anthropic-sdk-go'; then exit 1; fi
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          args: ./... ./integration/...
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-26.04
+          - xcode-27
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: codec tests
+        run: go test -race -count=1 ./...
+      - name: harness tests without a server
+        run: go test -race -count=1 ./integration/harness/...
+
+  integration:
+    runs-on: ubuntu-26.04
+    env:
+      LLAMA_INTEGRATION: "1"
+      LLAMA_MODEL_CACHE: ${{ github.workspace }}/.cache/models
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: cache llama.cpp binaries
+        id: llama-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/llama
+          key: llama-${{ env.LLAMA_BUILD }}-ubuntu-x64
+      - name: download llama.cpp ${{ env.LLAMA_BUILD }}
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/llama"
+          asset="llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$asset" "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/${asset}"
+          echo "${LLAMA_ASSET_SHA256}  $RUNNER_TEMP/$asset" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/llama"
+      - name: select llama-server
+        run: |
+          dir="$RUNNER_TEMP/llama/llama-${LLAMA_BUILD}"
+          echo "LLAMA_SERVER_BIN=$dir/llama-server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$dir" >> "$GITHUB_ENV"
+          "$dir/llama-server" --version
+      - name: cache models
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.LLAMA_MODEL_CACHE }}
+          key: models-${{ hashFiles('integration/models.yaml') }}
+          restore-keys: |
+            models-
+      - name: integration tests
+        run: go test -race -count=1 ./integration/...

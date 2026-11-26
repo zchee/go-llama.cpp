@@ -1,0 +1,61 @@
+# golangci-lint v2 configuration (written for v2.14).
+version: "2"
+
+run:
+  go: "1.27"
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gocritic
+    - godot
+    - revive
+    - misspell
+    - errorlint
+    - nolintlint
+  settings:
+    godot:
+      # Every comment of a declaration, exported or not, ends with a period.
+      scope: declarations
+      period: true
+      capital: false
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: error-strings
+        - name: error-naming
+        - name: receiver-naming
+        - name: unexported-return
+        - name: context-as-argument
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        # Wire structs are passed by value on purpose where they are small; the value semantics are part of the API.
+        - hugeParam
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: strict
+    presets:
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofumpt
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
