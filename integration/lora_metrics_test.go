@@ -19,8 +19,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -104,10 +102,7 @@ func TestLoRAAdaptersReplaceGlobalScales(t *testing.T) {
 }
 
 func TestLoRAAdaptersRouter(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Symlink(harness.Model(t, "stories260K"), filepath.Join(dir, "stories260K.gguf")); err != nil {
-		t.Fatal(err)
-	}
+	dir := modelsDirWith(t, "stories260K")
 	srv := harness.StartT(t, harness.Options{ModelsDir: dir, Args: []string{"--ctx-size", "512"}})
 	c, obs := srv.Client(t)
 
@@ -232,10 +227,7 @@ func TestMetricsSpeculativeDecoding(t *testing.T) {
 }
 
 func TestMetricsRouter(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Symlink(harness.Model(t, "stories260K"), filepath.Join(dir, "stories260K.gguf")); err != nil {
-		t.Fatal(err)
-	}
+	dir := modelsDirWith(t, "stories260K")
 	srv := harness.StartT(t, harness.Options{ModelsDir: dir, Args: []string{"--ctx-size", "512", "--metrics"}})
 	c, obs := srv.Client(t)
 	if _, err := c.Metrics(t.Context()); err == nil {

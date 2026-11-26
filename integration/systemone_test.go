@@ -18,8 +18,6 @@ import (
 	"errors"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	llama "github.com/zchee/go-llama.cpp"
@@ -116,10 +114,7 @@ func TestSystemoneEvaluation(t *testing.T) {
 }
 
 func TestSystemoneRouter(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Symlink(harness.Model(t, "tinyopenjev"), filepath.Join(dir, "tinyopenjev.gguf")); err != nil {
-		t.Fatal(err)
-	}
+	dir := modelsDirWith(t, "tinyopenjev")
 	srv := harness.StartT(t, harness.Options{ModelsDir: dir, Args: []string{"--ctx-size", "4096", "--batch-size", "512", "--parallel", "1", "--seed", "42"}})
 	c, _ := srv.Client(t)
 	client := systemone.NewClient(c)

@@ -17,6 +17,7 @@ package integration
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -49,6 +50,15 @@ var presetStories260K = &serverPreset{
 			},
 		}
 	},
+}
+
+func modelsDirWith(t *testing.T, asset string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Symlink(harness.Model(t, asset), filepath.Join(dir, asset+".gguf")); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 var (
