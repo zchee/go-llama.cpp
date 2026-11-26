@@ -1,0 +1,1 @@
+{"messages":[{"role":"user","content":"Hello!"},{"role":"assistant","content":"Hi","reasoning_content":"Greeting."}],"temperature":0,"max_tokens":4,"continue_final_message":"content","add_generation_prompt":false,"echo":true}
