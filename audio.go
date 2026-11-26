@@ -17,8 +17,6 @@ package llama
 import (
 	"errors"
 	"io"
-
-	"github.com/zchee/go-llama.cpp/internal/speech"
 )
 
 // Audio is a buffered or streamed audio response. If generation fails after streaming begins, the server
@@ -33,7 +31,18 @@ type Audio struct {
 }
 
 // AudioFormat describes an audio response. For WAV the sample metadata is in the body instead.
-type AudioFormat speech.Format
+type AudioFormat struct {
+	// MediaType is audio/wav or audio/pcm.
+	MediaType string
+	// SampleRate is the number of PCM sample frames per second.
+	SampleRate int
+	// Channels is the number of interleaved PCM channels, one when the header omits it.
+	Channels int
+	// Encoding is the PCM representation, such as float or signed-int.
+	Encoding string
+	// Bits is the number of bits per PCM sample.
+	Bits int
+}
 
 // WriteTo copies the audio to w and always closes Body. On a write error it stops without draining Body
 // and returns the number of bytes written and the error. Any close error is joined with the copy error.
