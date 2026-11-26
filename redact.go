@@ -19,6 +19,7 @@ import (
 	json "encoding/json/v2"
 	"fmt"
 	"io"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -93,6 +94,9 @@ func (s secret) redact(text string) string {
 // redactError wraps keyed errors even when only their fields, not their message, contain the key.
 func (s secret) redactError(err error) error {
 	if err == nil || s == nil {
+		return err
+	}
+	if v := reflect.ValueOf(err); v.Kind() == reflect.Pointer && v.IsNil() {
 		return err
 	}
 	return &redactedError{err: err, text: s.redact(err.Error())}

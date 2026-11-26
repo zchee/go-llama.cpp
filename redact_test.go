@@ -25,6 +25,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	gocmp "github.com/google/go-cmp/cmp"
 )
 
 // errTransportDown is the sentinel the dumping transport wraps, to check that redaction keeps errors.Is working.
@@ -171,6 +173,24 @@ func TestRedactDiagnosticForms(t *testing.T) {
 				if inner, ok := errors.AsType[*APIError](got); !ok || inner != orig {
 					t.Error("lost original APIError")
 				}
+			}
+		})
+	}
+}
+
+func TestRedactErrorPreservesNilPointer(t *testing.T) {
+	c, err := New("http://localhost", WithAPIKey(testAPIKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct{ err error }{
+		"success: API error":    {(*APIError)(nil)},
+		"success: custom error": {(*dumpError)(nil)},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := c.RedactError(tt.err); !gocmp.Equal(tt.err, got) {
+				t.Errorf("RedactError returned %T, want unchanged %T", got, tt.err)
 			}
 		})
 	}
