@@ -26,7 +26,7 @@ import (
 )
 
 // Payload is a state, instruction or description. Its zero value is omitted from optional fields;
-// Null sends an explicit JSON null. Support for null depends on the model.
+// Null sends an explicit JSON null. Support for null, numbers and booleans depends on the model.
 type Payload struct {
 	text string
 	raw  jsontext.Value
@@ -39,7 +39,16 @@ func Text(s string) Payload { return Payload{text: s, kind: '"'} }
 // Null returns an explicit JSON null.
 func Null() Payload { return Payload{kind: 'n'} }
 
-// NewPayload encodes a string, object, array or null. For example, a slice of openai.Message
+// Raw returns a payload from an encoded JSON value, preserving its JSON representation.
+func Raw(v jsontext.Value) (Payload, error) {
+	var p Payload
+	if err := json.Unmarshal(v, &p); err != nil {
+		return Payload{}, err
+	}
+	return p, nil
+}
+
+// NewPayload encodes a Go value as a payload. For example, a slice of openai.Message
 // encodes a conversation; an openai.ContentPart can encode a spoken instruction.
 func NewPayload(v any) (Payload, error) {
 	data, err := json.Marshal(v, json.Deterministic(true))
@@ -59,10 +68,10 @@ func (p Payload) MarshalJSONTo(enc *jsontext.Encoder) error {
 	switch p.kind {
 	case '"':
 		return enc.WriteToken(jsontext.String(p.text))
-	case '{', '[':
-		return enc.WriteValue(p.raw)
 	case 'n':
 		return enc.WriteToken(jsontext.Null)
+	case '{', '[', '0', 't', 'f':
+		return enc.WriteValue(p.raw)
 	default:
 		return errors.New("systemone: payload is unset; use Null for a JSON null")
 	}
@@ -72,31 +81,37 @@ func (p Payload) MarshalJSONTo(enc *jsontext.Encoder) error {
 func (p *Payload) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	kind := dec.PeekKind()
 	switch kind {
-	case '"', 'n':
+	case '"':
 		token, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if kind == 'n' {
-			*p = Null()
-		} else {
-			*p = Text(token.String())
+		*p = Text(token.String())
+	case 'n':
+		if _, err := dec.ReadToken(); err != nil {
+			return err
 		}
-	case '{', '[':
+		*p = Null()
+	case '{', '[', '0', 't', 'f':
 		raw, err := dec.ReadValue()
 		if err != nil {
 			return err
 		}
 		*p = Payload{kind: kind, raw: raw.Clone()}
 	default:
-		return fmt.Errorf("systemone: expected text, object, array or null, got %s", kind)
+		if _, err := dec.ReadValue(); err != nil {
+			return err
+		}
+		return fmt.Errorf("systemone: unexpected JSON kind %s", kind)
 	}
 	return nil
 }
 
-// Request asks named questions about State. Files and Images are alternative spellings for a list
-// of media data URLs; set at most one. Extra cannot override any named request field.
+// Request asks named questions about State. Model selects the target model in router mode;
+// single-model servers ignore it. Files and Images are alternative spellings for a list of media
+// data URLs; set at most one. Extra cannot override any named request field.
 type Request struct {
+	Model     string                    `json:"model,omitzero"`
 	State     Payload                   `json:"state"`
 	Questions map[string]Question       `json:"questions"`
 	Files     []string                  `json:"files,omitzero"`
@@ -109,7 +124,7 @@ func (r Request) MarshalJSONTo(enc *jsontext.Encoder) error {
 	if r.Files != nil && r.Images != nil {
 		return errors.New("systemone: set only one of files and images")
 	}
-	if err := reserved(r.Extra, "state", "questions", "files", "images"); err != nil {
+	if err := reserved(r.Extra, "model", "state", "questions", "files", "images"); err != nil {
 		return err
 	}
 	type wire Request

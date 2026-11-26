@@ -40,6 +40,8 @@ func TestSystemoneWire(t *testing.T) {
 		"success: all question types":     {name: "mixed"},
 		"success: image alias":            {name: "image"},
 		"success: files with array state": {name: "files"},
+		"success: numeric state":          {name: "number"},
+		"success: boolean state":          {name: "boolean"},
 		"error: null state":               {name: "invalid", status: 400, kind: llama.ErrorTypeInvalidRequest},
 		"error: nondecision model":        {name: "unsupported", status: 501, kind: llama.ErrorTypeNotSupported},
 	}
@@ -82,10 +84,12 @@ func TestSystemoneNewRequest(t *testing.T) {
 		want string
 	}{
 		"success: explicit null state and nullable descriptions": {req: systemone.Request{State: systemone.Null(), Questions: map[string]systemone.Question{"q": systemone.Choice(systemone.Null(), systemone.ChoiceCriteria{"x": systemone.Null()})}}, want: `{"state":null,"questions":{"q":{"type":"choice","instructions":null,"criteria":{"x":null}}}}`},
+		"success: model for router mode":                         {req: systemone.Request{Model: "tinyopenjev", State: systemone.Text("ok"), Questions: map[string]systemone.Question{"q": systemone.Noul(systemone.Payload{}, nil)}}, want: `{"model":"tinyopenjev","state":"ok","questions":{"q":{"type":"noul"}}}`},
 		"success: omitted default instructions":                  {req: systemone.Request{State: systemone.Text(""), Questions: map[string]systemone.Question{"q": systemone.Noul(systemone.Payload{}, nil)}, Images: []string{}}, want: `{"state":"","questions":{"q":{"type":"noul"}},"images":[]}`},
 		"error: explicit alias conflict":                         {req: systemone.Request{State: systemone.Null(), Files: []string{}, Images: []string{}}},
 		"error: alias supplied through Extra":                    {req: systemone.Request{State: systemone.Null(), Files: []string{"a"}, Extra: map[string]jsontext.Value{"images": jsontext.Value(`[]`)}}},
 		"error: questions supplied through Extra":                {req: systemone.Request{State: systemone.Null(), Extra: map[string]jsontext.Value{"questions": jsontext.Value(`{}`)}}},
+		"error: model supplied through Extra":                    {req: systemone.Request{State: systemone.Null(), Questions: map[string]systemone.Question{"q": systemone.Noul(systemone.Payload{}, nil)}, Extra: map[string]jsontext.Value{"model": jsontext.Value(`"tinyopenjev"`)}}},
 		"error: omitted files supplied through Extra":            {req: systemone.Request{State: systemone.Null(), Extra: map[string]jsontext.Value{"files": jsontext.Value(`[]`)}}},
 		"error: omitted instructions supplied through Extra":     {req: systemone.Request{State: systemone.Null(), Questions: map[string]systemone.Question{"q": {Type: "noul", Extra: map[string]jsontext.Value{"instructions": jsontext.Value(`null`)}}}}},
 		"error: mismatched criteria":                             {req: systemone.Request{State: systemone.Null(), Questions: map[string]systemone.Question{"q": {Type: "score", Criteria: systemone.ChoiceCriteria{}}}}},
@@ -136,6 +140,90 @@ func ExampleClient_Evaluate() {
 	fmt.Println(res.Answers["delivered"].Value.(systemone.NoulAnswer).Noul)
 }
 
+func TestSystemonePayloadNumberAndBoolean(t *testing.T) {
+	tests := map[string]struct {
+		raw     string
+		val     any
+		wantErr bool
+	}{
+		"success: integer":         {raw: `42`, val: 42},
+		"success: exponent number": {raw: `1e5`},
+		"success: negative float":  {raw: `-3.50`, val: -3.5},
+		"success: zero":            {raw: `0`, val: 0},
+		"success: true":            {raw: `true`, val: true},
+		"success: false":           {raw: `false`, val: false},
+		"success: object order":    {raw: `{"b":1,"a":2}`},
+		"success: text":            {raw: `"hello"`, val: "hello"},
+		"success: null":            {raw: `null`},
+		"error: empty raw":         {raw: ``, wantErr: true},
+		"error: malformed raw":     {raw: `{bad`, wantErr: true},
+		"error: trailing token":    {raw: `1 2`, wantErr: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rawPayload, err := systemone.Raw(jsontext.Value(tt.raw))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Raw(%q) succeeded, want error", tt.raw)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Raw(%q): %v", tt.raw, err)
+			}
+			if rawPayload.IsZero() {
+				t.Fatalf("Raw(%q).IsZero() = true, want false", tt.raw)
+			}
+			gotRaw, err := json.Marshal(rawPayload, json.Deterministic(true))
+			if err != nil {
+				t.Fatalf("Marshal(Raw(%q)): %v", tt.raw, err)
+			}
+			if string(gotRaw) != tt.raw {
+				t.Errorf("Marshal(Raw(%q)) = %s, want %s", tt.raw, gotRaw, tt.raw)
+			}
+
+			var p systemone.Payload
+			if err := json.Unmarshal([]byte(tt.raw), &p); err != nil {
+				t.Fatalf("Unmarshal(%s): %v", tt.raw, err)
+			}
+			if p.IsZero() {
+				t.Fatalf("Payload(%s).IsZero() = true, want false", tt.raw)
+			}
+			got, err := json.Marshal(p, json.Deterministic(true))
+			if err != nil {
+				t.Fatalf("Marshal(%s): %v", tt.raw, err)
+			}
+			if string(got) != tt.raw {
+				t.Errorf("Marshal = %s, want %s", got, tt.raw)
+			}
+			if tt.val != nil {
+				np, err := systemone.NewPayload(tt.val)
+				if err != nil {
+					t.Fatalf("NewPayload(%v): %v", tt.val, err)
+				}
+				gotNew, err := json.Marshal(np, json.Deterministic(true))
+				if err != nil {
+					t.Fatalf("Marshal(NewPayload(%v)): %v", tt.val, err)
+				}
+				if tt.raw != `-3.50` && string(gotNew) != tt.raw {
+					t.Errorf("NewPayload(%v) Marshal = %s, want %s", tt.val, gotNew, tt.raw)
+				}
+			}
+		})
+	}
+}
+
+func TestSystemoneMarshalRefusesExtraModel(t *testing.T) {
+	req := systemone.Request{
+		State:     systemone.Null(),
+		Questions: map[string]systemone.Question{"q": systemone.Noul(systemone.Payload{}, nil)},
+		Extra:     map[string]jsontext.Value{"model": jsontext.Value(`"tinyopenjev"`)},
+	}
+	if out, err := json.Marshal(req); err == nil {
+		t.Fatalf("json.Marshal accepted Extra[\"model\"]: %s", out)
+	}
+}
+
 func systemoneFuzz[T any](f *testing.F) {
 	f.Helper()
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -167,7 +255,7 @@ func systemoneFuzz[T any](f *testing.F) {
 }
 
 func FuzzSystemonePayload(f *testing.F) {
-	for _, name := range []string{"mixed", "image", "files", "invalid"} {
+	for _, name := range []string{"mixed", "image", "files", "invalid", "number", "boolean"} {
 		var req struct {
 			State jsontext.Value `json:"state"`
 		}
@@ -180,7 +268,7 @@ func FuzzSystemonePayload(f *testing.F) {
 }
 
 func FuzzSystemoneQuestion(f *testing.F) {
-	for _, name := range []string{"mixed", "files", "image"} {
+	for _, name := range []string{"mixed", "files", "image", "number", "boolean"} {
 		var req struct {
 			Questions map[string]jsontext.Value `json:"questions"`
 		}
@@ -196,7 +284,7 @@ func FuzzSystemoneQuestion(f *testing.F) {
 }
 
 func FuzzSystemoneAnswer(f *testing.F) {
-	for _, name := range []string{"mixed", "files"} {
+	for _, name := range []string{"mixed", "files", "number", "boolean"} {
 		var res struct {
 			Answers map[string]jsontext.Value `json:"answers"`
 		}

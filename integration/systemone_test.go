@@ -18,6 +18,8 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	llama "github.com/zchee/go-llama.cpp"
@@ -67,6 +69,14 @@ func TestSystemoneEvaluation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	numState, err := systemone.NewPayload(42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boolState, err := systemone.NewPayload(true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := map[string]struct {
 		preset *serverPreset
 		req    systemone.Request
@@ -76,6 +86,8 @@ func TestSystemoneEvaluation(t *testing.T) {
 		"success: files":               {preset: presetSystemone, req: systemone.Request{State: state, Questions: q, Files: []string{imageURL}}},
 		"success: images alias":        {preset: presetSystemone, req: systemone.Request{State: state, Questions: q, Images: []string{imageURL}}},
 		"success: chat image":          {preset: presetSystemone, req: systemone.Request{State: messages, Questions: q}},
+		"success: numeric state":       {preset: presetSystemone, req: systemone.Request{State: numState, Questions: map[string]systemone.Question{"even": systemone.Noul(systemone.Text("Is this number even?"), nil)}}},
+		"success: boolean state":       {preset: presetSystemone, req: systemone.Request{State: boolState, Questions: map[string]systemone.Question{"positive": systemone.Noul(systemone.Text("Is this value true?"), nil)}}},
 		"error: null state on openjev": {preset: presetSystemone, req: systemone.Request{State: systemone.Null(), Questions: q}, status: http.StatusBadRequest, kind: llama.ErrorTypeInvalidRequest},
 		"error: text model":            {preset: presetStories260K, req: systemone.Request{State: state, Questions: q}, status: http.StatusNotImplemented, kind: llama.ErrorTypeNotSupported},
 	}
@@ -93,9 +105,38 @@ func TestSystemoneEvaluation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if r.Usage.InputTokens <= base.Usage.InputTokens {
+			if _, ok := tt.req.Questions["route"]; ok && r.Usage.InputTokens <= base.Usage.InputTokens {
 				t.Errorf("image input used %d tokens, want more than text-only %d", r.Usage.InputTokens, base.Usage.InputTokens)
 			}
+			if r.Usage.InputTokens <= 0 {
+				t.Errorf("input tokens = %d, want positive", r.Usage.InputTokens)
+			}
 		})
+	}
+}
+
+func TestSystemoneRouter(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink(harness.Model(t, "tinyopenjev"), filepath.Join(dir, "tinyopenjev.gguf")); err != nil {
+		t.Fatal(err)
+	}
+	srv := harness.StartT(t, harness.Options{ModelsDir: dir, Args: []string{"--ctx-size", "4096", "--batch-size", "512", "--parallel", "1", "--seed", "42"}})
+	c, _ := srv.Client(t)
+	client := systemone.NewClient(c)
+	q := map[string]systemone.Question{"delivered": systemone.Noul(systemone.Text("Has it arrived?"), nil)}
+
+	if _, err := client.Evaluate(t.Context(), &systemone.Request{State: systemone.Text("A parcel has arrived."), Questions: q}); err == nil {
+		t.Fatal("unrouted POST /v1/systemone succeeded, want HTTP 400")
+	} else if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != "model name is missing from the request" {
+		t.Fatalf("unrouted POST /v1/systemone error = %v, want HTTP 400 model name is missing", err)
+	}
+
+	res, err := client.Evaluate(t.Context(), &systemone.Request{Model: "tinyopenjev", State: systemone.Text("A parcel has arrived."), Questions: q})
+	if err != nil {
+		t.Fatalf("routed POST /v1/systemone failed: %v", err)
+	}
+	ans, ok := res.Answers["delivered"].Value.(systemone.NoulAnswer)
+	if !ok || ans.Noul < 0 || ans.Noul > 1 || res.Usage.InputTokens <= 0 || res.Usage.OutputTokens != 0 {
+		t.Fatalf("unexpected routed response: %+v", res)
 	}
 }
