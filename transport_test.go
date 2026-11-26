@@ -476,7 +476,6 @@ func TestRetryAfter(t *testing.T) {
 	})
 }
 
-// step is one scripted outcome of an attempt.
 type step struct {
 	val       string
 	err       error

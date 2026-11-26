@@ -210,7 +210,7 @@ func TestClientNeverPrintsAPIKey(t *testing.T) {
 	}
 }
 
-// roundTripperFunc adapts a function to http.RoundTripper; the tests only use its type.
+// roundTripperFunc adapts a function to http.RoundTripper.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
