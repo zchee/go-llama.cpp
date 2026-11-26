@@ -1,0 +1,1 @@
+{"model":"tinyllama-2","prompt":"Once upon a time there was a little girl who lived in a village near a big forest","max_tokens":4,"temperature":0,"stream":true,"return_progress":true,"timings_per_token":true,"logprobs":2,"post_sampling_probs":true}
