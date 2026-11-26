@@ -186,7 +186,7 @@ func ExampleSession() {
 }
 ```
 
-The integration suite exercises live transcription and turn-based conversation. Full-duplex conversation has not been verified end to end because the available test models do not support it.
+The integration suite exercises live transcription and turn-based conversation. Full-duplex conversation has not been verified end to end because the available test models do not support it. Set `LLAMA_TEST_FULL_DUPLEX_MODEL` (and optionally `LLAMA_TEST_FULL_DUPLEX_MMPROJ`) to run the opt-in full-duplex test against a duplex-capable GGUF.
 
 ### System One decision
 
@@ -398,6 +398,11 @@ The llama.cpp v1.1.0 server README describes some behaviour differently from wha
 | `/tts` multipart upload takes the same options as JSON | The multipart parser converts `stream` and numbers but not `raw_prompt`, which silently becomes false | server-http.cpp:825-839; server-context.cpp:5706-5722 |
 | Native stream partials carry only `content`, `tokens`, and `stop` | Partials also carry `index`, token counters, `id_slot`, and optional progress, timings and probabilities | README 626; server-task.cpp:1052-1073 |
 | `/v1/completions` accepts OpenAI completion prompts and supports native completion features | With a multimodal projector loaded, the route accepts only a string prompt. It does not accept multimodal object prompts with or without a projector | README 1430-1438; server-context.cpp:5332-5337, 5993-6003; server-common.cpp:1210-1228 |
+| Router `memory.effective` is null unless the model is loaded | The value of the last load is kept while the model sleeps and is cleared only on unload | README 2251; server-models-sched.cpp:354-365, 553-555; recorded from the real server |
+| System One choice `confidence` of zero means all options are equally likely | The lfm3-d1 variants report the maximum probability instead (0.5 for two equally likely options) | server-decision.cpp:1701-1711 |
+| System One question `instructions` may be omitted for h2o-lightning and OCR models | The source also accepts omitted instructions for vllm-d3 | server-decision.cpp:265-273 |
+| `tokens_cached` is the number of prompt tokens reused from the cache | It is the size of the slot cache when generation ends, generated tokens included | server-context.cpp:2415-2416 |
+| POST `/completion` documents `repeat_penalty` default 1.1 and a sampler chain without `penalties` and `top_n_sigma` | The default is 1.0 and the chain includes both, matching the CLI table and recorded `/props` responses | README 124-137; recorded from the real server |
 
 ## License
 
