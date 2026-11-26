@@ -403,17 +403,21 @@ func TestRetryAfterRedirect(t *testing.T) {
 	}
 	tests := map[string]struct {
 		original, final *http.Request
+		message         string
 		retry           bool
 	}{
-		"no retry: redirected to slots":       {other, slots, false},
-		"retry: redirected from slots":        {slots, other, true},
-		"no retry: final request unavailable": {slots, nil, false},
+		"no retry: busy slots":                {slots, slots, "no slot available", false},
+		"retry: loading model on slots":       {slots, slots, "Loading model", true},
+		"no retry: redirected to busy slots":  {other, slots, "no slot available", false},
+		"retry: loading model after redirect": {other, slots, "Loading model", true},
+		"retry: redirected from slots":        {slots, other, "no slot available", true},
+		"no retry: final request unavailable": {slots, nil, "no slot available", false},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			resp := &http.Response{
 				StatusCode: http.StatusServiceUnavailable, Request: tt.final,
-				Body: io.NopCloser(strings.NewReader(`{"error":{"type":"unavailable_error"}}`)),
+				Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"error":{"type":"unavailable_error","message":%q}}`, tt.message))),
 			}
 			err := c.classifyResponse(tt.original, resp)
 			if _, got := errors.AsType[*retryableError](err); got != tt.retry {
@@ -676,6 +680,23 @@ func TestRetryWaitsAreBounded(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestRetryAfterExceedsRemainingBudget(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		p := RetryPolicy{MaxAttempts: 2, MaxInterval: math.MaxInt64, MaxElapsedTime: time.Second}
+		last := &APIError{StatusCode: 503, Type: ErrorTypeUnavailable}
+		start := time.Now()
+		_, err := retry(ctx, p, func(context.Context, int) (int, error) {
+			time.Sleep(time.Millisecond)
+			return 0, &retryableError{err: last, after: retryAfter(http.Header{"Retry-After": {"9223372037"}})}
+		})
+		if elapsed := time.Since(start); !errors.Is(err, last) || elapsed != time.Millisecond {
+			t.Errorf("retry returned %v after %v; want the last response immediately after the first attempt", err, elapsed)
+		}
+	})
 }
 
 func TestRetryCancellation(t *testing.T) {

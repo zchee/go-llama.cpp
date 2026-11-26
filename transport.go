@@ -211,8 +211,8 @@ func (c *Client) classifyResponse(req *http.Request, resp *http.Response) error 
 	if retryableStatus(apiErr) {
 		// A redirect can change the method, path and query that the slots handler received.
 		req = cmp.Or(resp.Request, req)
-		// The slots handler uses the same unavailable_error when asked not to wait for a free slot.
-		if req.Method == http.MethodGet && req.URL.Path == c.base.Path+"/slots" {
+		// Startup middleware can also return unavailable_error before the slots handler runs.
+		if apiErr.Message == "no slot available" && req.Method == http.MethodGet && req.URL.Path == c.base.Path+"/slots" {
 			values := req.URL.Query()["fail_on_no_slot"]
 			if len(values) > 0 && values[len(values)-1] != "" {
 				return apiErr
@@ -320,6 +320,15 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 	if p.MaxInterval <= 0 {
 		p.MaxInterval = backoff.DefaultMaxInterval
 	}
+	b := &cappedBackOff{
+		InitialInterval:     p.InitialInterval,
+		RandomizationFactor: min(max(p.RandomizationFactor, 0), 1),
+		Multiplier:          max(p.Multiplier, 1),
+		MaxInterval:         p.MaxInterval,
+	}
+	if p.MaxElapsedTime > 0 {
+		b.deadline = time.Now().Add(p.MaxElapsedTime)
+	}
 	op := func() (T, error) {
 		n++
 		v, err := attempt(ctx, n)
@@ -332,20 +341,12 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 			return v, backoff.Permanent(err)
 		}
 		last = re.err
-		if re.after > 0 {
-			return v, &backoff.RetryAfterError{Duration: min(re.after, p.MaxInterval)}
-		}
+		b.after = re.after
 		return v, err
 	}
 
-	b := &backoff.ExponentialBackOff{
-		InitialInterval:     p.InitialInterval,
-		RandomizationFactor: min(max(p.RandomizationFactor, 0), 1),
-		Multiplier:          max(p.Multiplier, 1),
-		MaxInterval:         p.MaxInterval,
-	}
 	v, err := backoff.Retry(ctx, op,
-		backoff.WithBackOff(&cappedBackOff{BackOff: b, limit: b.MaxInterval}),
+		backoff.WithBackOff(b),
 		backoff.WithMaxTries(uint(p.MaxAttempts)),
 		backoff.WithMaxElapsedTime(p.MaxElapsedTime),
 	)
@@ -358,9 +359,6 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 	if _, ok := errors.AsType[*retryableError](err); ok {
 		return v, last
 	}
-	if _, ok := errors.AsType[*backoff.RetryAfterError](err); ok {
-		return v, last
-	}
 	// The context ended while waiting for the next attempt.
 	return v, fmt.Errorf("%w (last attempt: %w)", err, last)
 }
@@ -368,16 +366,25 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 // cappedBackOff limits every wait of a BackOff. ExponentialBackOff caps only the interval before randomization, and
 // uses an InitialInterval above MaxInterval unchanged, so its waits can exceed MaxInterval.
 type cappedBackOff struct {
-	backoff.BackOff
-	limit time.Duration
+	backoff.ExponentialBackOff
+	after    time.Duration
+	deadline time.Time
 }
 
 func (b *cappedBackOff) NextBackOff() time.Duration {
-	d := b.BackOff.NextBackOff()
-	if d == backoff.Stop {
-		return d
+	var d time.Duration
+	if b.after > 0 {
+		d = b.after
+		b.Reset()
+	} else {
+		d = b.ExponentialBackOff.NextBackOff()
 	}
-	return min(d, b.limit)
+	d = min(d, b.MaxInterval)
+	// Check before backoff.Retry adds the wait to elapsed time: that sum can overflow.
+	if !b.deadline.IsZero() && d > time.Until(b.deadline) {
+		return backoff.Stop
+	}
+	return d
 }
 
 // Call sends a request and decodes the JSON response body into Resp. It is the building block of the typed
