@@ -870,7 +870,7 @@ func (s StringOrSlice) MarshalJSONTo(enc *jsontext.Encoder) error {
 	switch {
 	case s.values == nil:
 		return enc.WriteToken(jsontext.Null)
-	case s.single && len(s.values) == 1:
+	case s.single:
 		return enc.WriteToken(jsontext.String(s.values[0]))
 	default:
 		return json.MarshalEncode(enc, s.values)
