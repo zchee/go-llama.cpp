@@ -19,10 +19,12 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	llama "github.com/zchee/go-llama.cpp"
 	"github.com/zchee/go-llama.cpp/integration/harness"
@@ -107,6 +109,57 @@ func TestAuthentication(t *testing.T) {
 				if strings.Contains(out, testAPIKey) {
 					t.Errorf("the API key appears in output: %s", out)
 				}
+			}
+		})
+	}
+}
+
+type bodyFailureTransport struct {
+	next    http.RoundTripper
+	failure error
+}
+
+func (tr bodyFailureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := tr.next.RoundTrip(req)
+	if err == nil {
+		resp.Body = struct {
+			io.Reader
+			io.Closer
+		}{iotest.ErrReader(tr.failure), resp.Body}
+	}
+	return resp, err
+}
+
+func TestResponseBodyErrorRedaction(t *testing.T) {
+	const key = "not-a-real-credential"
+	srv := presetStories260K.server(t)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	t.Cleanup(tr.CloseIdleConnections)
+	failure := errors.New("Authorization: Bearer " + key)
+	c, err := llama.New(srv.URL, llama.WithAPIKey(key), llama.WithHTTPClient(&http.Client{Transport: bodyFailureTransport{tr, failure}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct{ call func(t *testing.T) error }{
+		"error: typed response body": {func(t *testing.T) error { _, err := c.Health(t.Context()); return err }},
+		"error: raw response body": {func(t *testing.T) error {
+			resp, err := llama.CallRaw(t.Context(), c, http.MethodGet, "/health", nil)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			_, err = io.ReadAll(resp.Body)
+			return err
+		}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tt.call(t)
+			if !errors.Is(err, failure) {
+				t.Fatal("missing injected body failure")
+			}
+			if !strings.Contains(err.Error(), "[REDACTED]") || strings.Contains(err.Error(), key) {
+				t.Error("response body error was not redacted")
 			}
 		})
 	}

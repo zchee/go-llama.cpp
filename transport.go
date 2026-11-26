@@ -161,8 +161,8 @@ func (c *Client) do(ctx context.Context, method, path string, body any, accept s
 	err = c.RedactError(err)
 
 	attrs := []slog.Attr{
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
+		slog.String("method", c.apiKey.redact(req.Method)),
+		slog.String("path", c.apiKey.redact(req.URL.Path)),
 		slog.Int("attempts", attempts),
 		slog.Duration("duration", time.Since(start)),
 	}
@@ -186,7 +186,7 @@ func (c *Client) attempt(ctx context.Context, req *http.Request, n int) (*http.R
 	}
 	if n > 1 {
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "llama retry",
-			slog.String("method", req.Method), slog.String("path", req.URL.Path), slog.Int("attempt", n))
+			slog.String("method", c.apiKey.redact(req.Method)), slog.String("path", c.apiKey.redact(req.URL.Path)), slog.Int("attempt", n))
 	}
 	resp, err := c.hc.Do(r)
 	if err != nil {
@@ -365,13 +365,13 @@ func Call[Resp any](ctx context.Context, c *Client, method, path string, body an
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return out, fmt.Errorf("llama: reading %s %s response: %w", method, path, err)
+		return out, c.RedactError(fmt.Errorf("llama: reading %s %s response: %w", method, path, err))
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return out, nil
 	}
 	if err := json.Unmarshal(data, &out, jsonOptions); err != nil {
-		return out, fmt.Errorf("llama: decoding %s %s response: %w", method, path, err)
+		return out, c.RedactError(fmt.Errorf("llama: decoding %s %s response: %w", method, path, err))
 	}
 	return out, nil
 }
@@ -380,5 +380,24 @@ func Call[Resp any](ctx context.Context, c *Client, method, path string, body an
 // non-2xx status is returned as an *APIError and the body is closed. It serves endpoints whose responses are not
 // JSON, such as audio and Prometheus metrics.
 func CallRaw(ctx context.Context, c *Client, method, path string, body any, opts ...RequestOption) (*http.Response, error) {
-	return c.do(ctx, method, path, body, "", opts)
+	resp, err := c.do(ctx, method, path, body, "", opts)
+	if err == nil && c.apiKey != nil {
+		resp.Body = &redactedBody{resp.Body, c}
+	}
+	return resp, err
 }
+
+type redactedBody struct {
+	io.ReadCloser
+	client *Client
+}
+
+func (b *redactedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF {
+		return n, io.EOF
+	}
+	return n, b.client.RedactError(err)
+}
+
+func (b *redactedBody) Close() error { return b.client.RedactError(b.ReadCloser.Close()) }

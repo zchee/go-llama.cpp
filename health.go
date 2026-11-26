@@ -63,7 +63,7 @@ func (c *Client) WaitReady(ctx context.Context) error {
 			return nil
 		}
 		if ctx.Err() != nil {
-			return fmt.Errorf("llama: waiting for the server: %w (last error: %w)", context.Cause(ctx), err)
+			return c.RedactError(fmt.Errorf("llama: waiting for the server: %w (last error: %w)", context.Cause(ctx), err))
 		}
 		if apiErr, ok := errors.AsType[*APIError](err); ok && apiErr.StatusCode != http.StatusServiceUnavailable {
 			return err
@@ -72,7 +72,7 @@ func (c *Client) WaitReady(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return fmt.Errorf("llama: waiting for the server: %w (last error: %w)", context.Cause(ctx), err)
+			return c.RedactError(fmt.Errorf("llama: waiting for the server: %w (last error: %w)", context.Cause(ctx), err))
 		case <-timer.C:
 		}
 	}

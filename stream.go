@@ -61,7 +61,7 @@ func Stream[T any](ctx context.Context, c *Client, method, path string, body any
 		}
 		defer resp.Body.Close()
 		if err := checkEventStream(resp); err != nil {
-			yield(nil, err)
+			yield(nil, c.RedactError(err))
 			return
 		}
 		for v, err := range readStream[T](resp.Body, c.maxEventSize, resp.StatusCode, resp.Header) {

@@ -50,11 +50,6 @@ type Client struct {
 // New returns a client for the server at baseURL, for example "http://127.0.0.1:8080". A path in baseURL is the
 // server's --api-prefix and is prepended to every endpoint path.
 func New(baseURL string, opts ...ClientOption) (*Client, error) {
-	base, err := parseBaseURL(baseURL)
-	if err != nil {
-		return nil, err
-	}
-
 	cfg := &clientConfig{
 		retry:        DefaultRetryPolicy(),
 		userAgent:    DefaultUserAgent,
@@ -65,8 +60,13 @@ func New(baseURL string, opts ...ClientOption) (*Client, error) {
 			opt(cfg)
 		}
 	}
+	key := newSecret(cfg.apiKey)
+	base, err := parseBaseURL(baseURL)
+	if err != nil {
+		return nil, key.redactError(err)
+	}
 	if cfg.apiKeyHeader != APIKeyHeaderAuthorization && cfg.apiKeyHeader != APIKeyHeaderXAPIKey {
-		return nil, fmt.Errorf("llama: unknown APIKeyHeader %d", cfg.apiKeyHeader)
+		return nil, key.redactError(fmt.Errorf("llama: unknown APIKeyHeader %d", cfg.apiKeyHeader))
 	}
 	if cfg.maxEventSize <= 0 {
 		cfg.maxEventSize = DefaultMaxEventSize
@@ -77,12 +77,12 @@ func New(baseURL string, opts ...ClientOption) (*Client, error) {
 
 	hc, err := buildHTTPClient(cfg.httpClient, cfg.unixSocket)
 	if err != nil {
-		return nil, err
+		return nil, key.redactError(err)
 	}
 
 	return &Client{
 		base:         base,
-		apiKey:       newSecret(cfg.apiKey),
+		apiKey:       key,
 		apiKeyHeader: cfg.apiKeyHeader,
 		hc:           hc,
 		userAgent:    cfg.userAgent,
@@ -191,7 +191,7 @@ func (c *Client) HTTPClient() *http.Client {
 func (c Client) String() string {
 	base := "<nil>"
 	if c.base != nil {
-		base = c.base.String()
+		base = c.apiKey.redact(c.base.String())
 	}
 	return fmt.Sprintf("llama.Client{base: %q, apiKey: %t}", base, c.apiKey.value() != "")
 }

@@ -15,11 +15,14 @@
 package llama
 
 import (
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
-	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // redactedText replaces the API key in error and log text.
@@ -27,14 +30,44 @@ const redactedText = "[REDACTED]"
 
 // secret holds the API key behind a function, so that printing a Client by reflection (%#v of a copied value, or
 // of a struct that contains one) shows a function address and never the key.
-type secret func() string
+type secret func() (string, *regexp.Regexp)
 
 // newSecret returns a secret holding s, or nil for an empty key.
 func newSecret(s string) secret {
 	if s == "" {
 		return nil
 	}
-	return func() string { return s }
+	// Header dumps contain the literal key or its Go/JSON string contents. In URLs any UTF-8
+	// character may be literal or percent-encoded, and a query space may also be '+'. Only the
+	// hex digits in percent escapes are case-insensitive. This does not decode nested encodings.
+	var pattern strings.Builder
+	for _, r := range s {
+		lit := string(r)
+		pattern.WriteString("(?:")
+		pattern.WriteString(regexp.QuoteMeta(lit))
+		if r == ' ' {
+			pattern.WriteString(`|\+`)
+		}
+		pattern.WriteString("|(?i:")
+		for i := range len(lit) {
+			fmt.Fprintf(&pattern, "%%%02X", lit[i])
+		}
+		pattern.WriteString("))")
+	}
+	plain, _ := json.Marshal(s)
+	q, _ := json.Marshal(s, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
+	for _, quoted := range []string{strconv.Quote(s), strconv.QuoteToASCII(s), string(plain), string(q)} {
+		if len(quoted) >= 2 && quoted[1:len(quoted)-1] != s {
+			pattern.WriteByte('|')
+			pattern.WriteString(regexp.QuoteMeta(quoted[1 : len(quoted)-1]))
+		}
+	}
+	re, err := regexp.Compile(pattern.String())
+	if err != nil || !utf8.ValidString(s) {
+		return func() (string, *regexp.Regexp) { return s, nil }
+	}
+	re.Longest()
+	return func() (string, *regexp.Regexp) { return s, re }
 }
 
 // value returns the key, or "" when none is set.
@@ -42,21 +75,19 @@ func (s secret) value() string {
 	if s == nil {
 		return ""
 	}
-	return s()
+	key, _ := s()
+	return key
 }
 
-// redact replaces every spelling of the key that may appear in text: as is, URL-escaped, and escaped inside a
-// quoted Go string such as a %q of a header.
 func (s secret) redact(text string) string {
-	key := s.value()
-	if key == "" {
+	if s == nil || text == "" {
 		return text
 	}
-	quoted := strconv.Quote(key)
-	for _, form := range []string{key, url.QueryEscape(key), url.PathEscape(key), quoted[1 : len(quoted)-1]} {
-		text = strings.ReplaceAll(text, form, redactedText)
+	_, re := s()
+	if re == nil {
+		return redactedText
 	}
-	return text
+	return re.ReplaceAllString(text, redactedText)
 }
 
 // redactError returns err when its text does not contain the key, and otherwise wraps it in a redactedError.

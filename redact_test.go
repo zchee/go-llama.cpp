@@ -136,6 +136,30 @@ func TestErrorsNeverCarryAPIKey(t *testing.T) {
 	}
 }
 
+func TestRedactDiagnosticForms(t *testing.T) {
+	const key = "fake/a+b"
+	const quotedKey = `fake/"b\c`
+	tests := map[string]struct {
+		key  string
+		err  error
+		want string
+	}{
+		"success: lower-case percent escape":             {key, &url.Error{Op: "Get", URL: "https://example.invalid/fake%2fa+b", Err: errTransportDown}, `Get "https://example.invalid/[REDACTED]": transport down`},
+		"success: escaped and literal bytes":             {key, errors.New("%66ak%65/a%2Bb"), redactedText},
+		"success: literal letters remain case-sensitive": {key, errors.New("Fake%2fa+b"), "Fake%2fa+b"},
+		"success: quoted canonical headers":              {quotedKey, fmt.Errorf("%#v", http.Header{"X-Api-Key": {quotedKey}, "Authorization": {"Bearer " + quotedKey}}), `http.Header{"Authorization":[]string{"Bearer [REDACTED]"}, "X-Api-Key":[]string{"[REDACTED]"}}`},
+		"success: HTML-escaped JSON string":              {`fake<&"`, errors.New(`{"key":"fake<&\""}`), `{"key":"[REDACTED]"}`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := newSecret(tt.key).redactError(tt.err)
+			if !errors.Is(got, tt.err) || got.Error() != tt.want {
+				t.Error("redaction changed the error chain or did not produce the expected diagnostic")
+			}
+		})
+	}
+}
+
 func TestRedactErrorKeepsOtherErrors(t *testing.T) {
 	c, err := New("http://127.0.0.1:8080", WithAPIKey(testAPIKey))
 	if err != nil {
