@@ -17,9 +17,13 @@ package llama
 import (
 	"context"
 	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 
@@ -39,11 +43,32 @@ type HealthResponse struct {
 // never retries, so the caller sees the current state. Use WaitReady to wait for readiness.
 func (c *Client) Health(ctx context.Context, opts ...RequestOption) (*HealthResponse, error) {
 	opts = append(slices.Clip(opts), WithNoRetry())
-	res, err := Call[HealthResponse](ctx, c, http.MethodGet, "/health", nil, opts...)
+	resp, err := c.do(ctx, http.MethodGet, "/health", nil, "application/json", opts)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+	var res HealthResponse
+	if err := json.UnmarshalRead(resp.Body, &res, jsonOptions); err != nil {
+		return nil, c.RedactError(fmt.Errorf("llama: decoding GET /health response: %w", err))
+	}
+	if res.Status != "ok" {
+		return nil, c.RedactError(fmt.Errorf("llama: GET /health returned status %q, want ok", res.Status))
+	}
 	return &res, nil
+}
+
+// retryableHealthError distinguishes connection failures before headers from invalid health responses.
+func retryableHealthError(err error) bool {
+	if e, ok := errors.AsType[*APIError](err); ok {
+		return e.StatusCode == http.StatusServiceUnavailable
+	}
+	u, ok := errors.AsType[*url.Error](err)
+	if !ok {
+		return false
+	}
+	_, network := errors.AsType[*net.OpError](u.Err)
+	return network || errors.Is(u.Err, io.EOF) || errors.Is(u.Err, io.ErrUnexpectedEOF)
 }
 
 // WaitReady polls GET /health until the server reports ready, ctx is done, or the server answers with an error
@@ -65,7 +90,7 @@ func (c *Client) WaitReady(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return c.RedactError(fmt.Errorf("llama: waiting for the server: %w (last error: %w)", context.Cause(ctx), err))
 		}
-		if apiErr, ok := errors.AsType[*APIError](err); ok && apiErr.StatusCode != http.StatusServiceUnavailable {
+		if !retryableHealthError(err) {
 			return err
 		}
 		timer := time.NewTimer(b.NextBackOff())
