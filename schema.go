@@ -61,9 +61,7 @@ func findEmbed(t reflect.Type, seen map[reflect.Type]bool) (string, bool) {
 	seen[t] = true
 
 	switch t.Kind() {
-	case reflect.Slice, reflect.Array:
-		return findEmbed(t.Elem(), seen)
-	case reflect.Map:
+	case reflect.Slice, reflect.Array, reflect.Map:
 		return findEmbed(t.Elem(), seen)
 	case reflect.Struct:
 		for f := range t.Fields() {
