@@ -87,9 +87,10 @@ func Dial(ctx context.Context, c *llama.Client, opts *DialOptions) (*Session, er
 	if err != nil {
 		if resp != nil && resp.StatusCode >= http.StatusBadRequest {
 			apiErr := llama.ReadAPIError(resp)
-			return nil, fmt.Errorf("realtime: handshake refused: %w", apiErr)
+			return nil, c.RedactError(fmt.Errorf("realtime: handshake refused: %w", apiErr))
 		}
-		return nil, fmt.Errorf("realtime: dial: %w", err)
+		// The handshake goes through the HTTP client directly, so its errors are redacted here.
+		return nil, c.RedactError(fmt.Errorf("realtime: dial: %w", err))
 	}
 
 	limit := opts.ReadLimit

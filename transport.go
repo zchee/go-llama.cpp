@@ -75,7 +75,7 @@ func encodeBody(body any) ([]byte, string, error) {
 // the request can be resent.
 func (c *Client) NewRequest(ctx context.Context, method, path string, body any, opts ...RequestOption) (*http.Request, error) {
 	req, _, err := c.buildRequest(ctx, method, path, body, "", opts)
-	return req, err
+	return req, c.RedactError(err)
 }
 
 // buildRequest is NewRequest with a default Accept header, also returning the request options.
@@ -108,12 +108,12 @@ func (c *Client) buildRequest(ctx context.Context, method, path string, body any
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
 	}
-	if c.apiKey != "" {
+	if key := c.apiKey.value(); key != "" {
 		switch c.apiKeyHeader {
 		case APIKeyHeaderXAPIKey:
-			req.Header.Set("X-Api-Key", c.apiKey)
+			req.Header.Set("X-Api-Key", key)
 		default:
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+			req.Header.Set("Authorization", "Bearer "+key)
 		}
 	}
 	maps.Copy(req.Header, rc.header)
@@ -141,11 +141,12 @@ func (c *Client) resolve(path string, query url.Values) (*url.URL, error) {
 }
 
 // do sends a request, retrying it under the client's policy, and returns a response with a 2xx status. Any other
-// status is returned as an *APIError with the body already closed.
+// status is returned as an *APIError with the body already closed. Every error it returns, and every log record it
+// writes, has the API key removed: transports and proxies may quote request headers in their errors.
 func (c *Client) do(ctx context.Context, method, path string, body any, accept string, opts []RequestOption) (*http.Response, error) {
 	req, rc, err := c.buildRequest(ctx, method, path, body, accept, opts)
 	if err != nil {
-		return nil, err
+		return nil, c.RedactError(err)
 	}
 	start := time.Now()
 	policy := c.retry
@@ -157,6 +158,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, accept s
 		attempts = n
 		return c.attempt(ctx, req, n)
 	})
+	err = c.RedactError(err)
 
 	attrs := []slog.Attr{
 		slog.String("method", req.Method),
@@ -166,6 +168,8 @@ func (c *Client) do(ctx context.Context, method, path string, body any, accept s
 	}
 	if resp != nil {
 		attrs = append(attrs, slog.Int("status", resp.StatusCode))
+	} else if apiErr, ok := errors.AsType[*APIError](err); ok {
+		attrs = append(attrs, slog.Int("status", apiErr.StatusCode))
 	}
 	if err != nil {
 		attrs = append(attrs, slog.String("error", err.Error()))
@@ -312,7 +316,7 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 		b.MaxInterval = backoff.DefaultMaxInterval
 	}
 	v, err := backoff.Retry(ctx, op,
-		backoff.WithBackOff(b),
+		backoff.WithBackOff(&cappedBackOff{BackOff: b, limit: b.MaxInterval}),
 		backoff.WithMaxTries(uint(p.MaxAttempts)),
 		backoff.WithMaxElapsedTime(p.MaxElapsedTime),
 	)
@@ -330,6 +334,21 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 	}
 	// The context ended while waiting for the next attempt.
 	return v, fmt.Errorf("%w (last attempt: %w)", err, last)
+}
+
+// cappedBackOff limits every wait of a BackOff. ExponentialBackOff caps only the interval before randomization, and
+// uses an InitialInterval above MaxInterval unchanged, so its waits can exceed MaxInterval.
+type cappedBackOff struct {
+	backoff.BackOff
+	limit time.Duration
+}
+
+func (b *cappedBackOff) NextBackOff() time.Duration {
+	d := b.BackOff.NextBackOff()
+	if d == backoff.Stop {
+		return d
+	}
+	return min(d, b.limit)
 }
 
 // Call sends a request and decodes the JSON response body into Resp. It is the building block of the typed

@@ -68,6 +68,7 @@ func Stream[T any](ctx context.Context, c *Client, method, path string, body any
 			if err != nil && ctx.Err() != nil {
 				err = fmt.Errorf("llama: stream interrupted: %w", context.Cause(ctx))
 			}
+			err = c.RedactError(err)
 			if !yield(v, err) || err != nil {
 				return
 			}

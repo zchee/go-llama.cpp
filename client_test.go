@@ -94,8 +94,11 @@ func TestNewOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.HTTPClient() != hc {
-		t.Errorf("WithHTTPClient was not used")
+	if c.HTTPClient() == hc {
+		t.Errorf("the caller's client must be copied, not modified")
+	}
+	if c.HTTPClient().Timeout != hc.Timeout || hc.CheckRedirect != nil {
+		t.Errorf("copy lost the caller's Timeout, or the caller's CheckRedirect was changed")
 	}
 	if c.userAgent != "ua/1" || c.maxEventSize != 1234 || c.retry != policy {
 		t.Errorf("options not applied: userAgent=%q maxEventSize=%d retry=%+v", c.userAgent, c.maxEventSize, c.retry)

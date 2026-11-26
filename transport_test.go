@@ -516,27 +516,42 @@ func TestRetryLoop(t *testing.T) {
 	}
 }
 
+// TestRetryWaitsAreBounded checks that no wait exceeds MaxInterval, including an InitialInterval above it and
+// the upward jitter of a capped interval.
 func TestRetryWaitsAreBounded(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		p := RetryPolicy{MaxAttempts: 12, InitialInterval: 100 * time.Millisecond, MaxInterval: 400 * time.Millisecond, Multiplier: 3, RandomizationFactor: 0.5}
-		var starts []time.Time
-		_, err := retry(t.Context(), p, func(context.Context, int) (int, error) {
-			starts = append(starts, time.Now())
-			return 0, &retryableError{err: errors.New("down")}
+	tests := map[string]RetryPolicy{
+		"success: growth reaches the cap": {
+			MaxAttempts: 12, InitialInterval: 100 * time.Millisecond, MaxInterval: 400 * time.Millisecond, Multiplier: 3, RandomizationFactor: 0.5,
+		},
+		"success: initial interval above the cap": {
+			MaxAttempts: 6, InitialInterval: 2 * time.Second, MaxInterval: time.Second, Multiplier: 2, RandomizationFactor: 0.5,
+		},
+		"success: full jitter at the cap": {
+			MaxAttempts: 20, InitialInterval: time.Second, MaxInterval: time.Second, Multiplier: 1, RandomizationFactor: 1,
+		},
+	}
+	for name, p := range tests {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var starts []time.Time
+				_, err := retry(t.Context(), p, func(context.Context, int) (int, error) {
+					starts = append(starts, time.Now())
+					return 0, &retryableError{err: errors.New("down")}
+				})
+				if err == nil || err.Error() != "down" {
+					t.Fatalf("error = %v, want the last attempt error", err)
+				}
+				if len(starts) != p.MaxAttempts {
+					t.Fatalf("attempts = %d, want %d", len(starts), p.MaxAttempts)
+				}
+				for i := 1; i < len(starts); i++ {
+					if gap := starts[i].Sub(starts[i-1]); gap < 0 || gap > p.MaxInterval {
+						t.Errorf("wait before attempt %d = %v, want within [0, %v]", i+1, gap, p.MaxInterval)
+					}
+				}
+			})
 		})
-		if err == nil || err.Error() != "down" {
-			t.Fatalf("error = %v, want the last attempt error", err)
-		}
-		if len(starts) != p.MaxAttempts {
-			t.Fatalf("attempts = %d, want %d", len(starts), p.MaxAttempts)
-		}
-		limit := time.Duration(float64(p.MaxInterval) * (1 + p.RandomizationFactor))
-		for i := 1; i < len(starts); i++ {
-			if gap := starts[i].Sub(starts[i-1]); gap <= 0 || gap > limit {
-				t.Errorf("wait before attempt %d = %v, want in (0, %v]", i+1, gap, limit)
-			}
-		}
-	})
+	}
 }
 
 func TestRetryCancellation(t *testing.T) {

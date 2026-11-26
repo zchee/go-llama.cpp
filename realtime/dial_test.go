@@ -17,7 +17,10 @@ package realtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httputil"
 	"strings"
 	"testing"
 
@@ -80,6 +83,54 @@ func TestNormalizeCloseError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := normalizeCloseError(tt.err); (got == nil) != tt.wantNil {
 				t.Errorf("normalizeCloseError(%v) = %v, want nil %t", tt.err, got, tt.wantNil)
+			}
+		})
+	}
+}
+
+// dumpError quotes the whole handshake request, headers included, as some transports and proxies do.
+type dumpError struct {
+	dump string
+}
+
+func (e *dumpError) Error() string { return "handshake failed: " + e.dump }
+
+type dumpingTransport struct{}
+
+func (dumpingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	dump, err := httputil.DumpRequest(r, false)
+	if err != nil {
+		return nil, err
+	}
+	return nil, &dumpError{dump: string(dump)}
+}
+
+// TestDialErrorsNeverCarryAPIKey sends the handshake through a transport whose error quotes the request: the
+// handshake bypasses the llama client's request path, so Dial must redact its own errors.
+func TestDialErrorsNeverCarryAPIKey(t *testing.T) {
+	const key = "sk-realtime-handshake-secret"
+	for name, header := range map[string]llama.APIKeyHeader{
+		"success: bearer":    llama.APIKeyHeaderAuthorization,
+		"success: X-Api-Key": llama.APIKeyHeaderXAPIKey,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, err := llama.New("http://127.0.0.1:8080", llama.WithAPIKey(key), llama.WithAPIKeyHeader(header),
+				llama.WithHTTPClient(&http.Client{Transport: dumpingTransport{}}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = Dial(t.Context(), c, &DialOptions{Intent: IntentTranscription})
+			if err == nil {
+				t.Fatalf("Dial through a failing transport succeeded")
+			}
+			inner, ok := errors.AsType[*dumpError](err)
+			if !ok || !strings.Contains(inner.dump, key) {
+				t.Fatalf("the transport error is not reachable or does not quote the key, so the test proves nothing: %v", err)
+			}
+			for _, out := range []string{err.Error(), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err), fmt.Sprintf("%q", err)} {
+				if strings.Contains(out, key) {
+					t.Errorf("Dial error carries the API key: %s", out)
+				}
 			}
 		})
 	}
