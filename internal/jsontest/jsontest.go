@@ -146,6 +146,16 @@ func EventData(t testing.TB, stream []byte) []Event {
 	return out
 }
 
+// CheckWire checks that T round-trips data, preserves injected unknown members, and names every recorded member.
+// It returns the value decoded by RoundTrip.
+func CheckWire[T any](t testing.TB, data []byte) *T {
+	t.Helper()
+	v := RoundTrip[T](t, data)
+	InjectUnknown[T](t, data)
+	NoUnknown[T](t, data, nil)
+	return v
+}
+
 // RoundTrip decodes data into a T, encodes the result, and fails the test unless the output is semantically equal
 // to data (same members and values; member order and number spelling may differ). It returns the decoded value.
 func RoundTrip[T any](t testing.TB, data []byte) *T {

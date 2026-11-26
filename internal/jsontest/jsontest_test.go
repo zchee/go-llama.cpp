@@ -112,6 +112,21 @@ type wrongFallback struct {
 
 const doc = `{"a":1,"inner":{"b":"x"},"list":[{"b":"y"},{"b":"z"}]}`
 
+func TestCheckWire(t *testing.T) {
+	if got := CheckWire[good](t, []byte(doc)); got.A != 1 {
+		t.Errorf("decoded a = %d, want 1", got.A)
+	}
+	messages, _ := Failures(t, func(tb testing.TB) {
+		CheckWire[lossy](tb, []byte(`{"a":1,"untyped":2,"inner":{"b":"x","dropped":3}}`))
+	})
+	report := strings.Join(messages, "\n")
+	for _, want := range []string{"does not round-trip", "dropped the unknown member", "/: untyped"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("missing %q in failures:\n%s", want, report)
+		}
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	r := run(t, func(tb testing.TB) { RoundTrip[good](tb, []byte(doc)) })
 	if len(r.errors) != 0 {
