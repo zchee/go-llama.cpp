@@ -64,7 +64,8 @@ type SamplingParams struct {
 	TimingsPerToken *bool `json:"timings_per_token,omitzero"`
 	// PostSamplingProbs reports the probabilities of the top NProbs tokens after the sampler chain.
 	PostSamplingProbs *bool `json:"post_sampling_probs,omitzero"`
-	// ResponseFields restricts the response to the listed fields; "a/b" moves the nested field b to the top.
+	// ResponseFields restricts the response to the listed fields. "a/b" selects the member b nested in a, and the
+	// response carries it at the top level under the literal name "a/b".
 	ResponseFields []string `json:"response_fields,omitzero"`
 	// SSEPingInterval is the interval in seconds between keep-alive comments of a silent stream; -1 disables them.
 	SSEPingInterval *int `json:"sse_ping_interval,omitzero"`
