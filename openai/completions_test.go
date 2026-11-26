@@ -377,10 +377,9 @@ func TestCompletionsMultimodalRefusalWire(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			reqData := jsontest.ReadFile(t, tt.prefix+".req.json")
-			var req CompletionRequest
-			if err := json.Unmarshal(reqData, &req); err != nil {
-				t.Fatalf("unmarshaling recorded request: %v", err)
-			}
+			req := jsontest.RoundTrip[CompletionRequest](t, reqData)
+			jsontest.InjectUnknown[CompletionRequest](t, reqData)
+			jsontest.NoUnknown[CompletionRequest](t, reqData, nil)
 			if !req.Prompt.Equal(tt.wantPrompt) {
 				t.Errorf("recorded prompt %v does not match the typed prompt", req.Prompt)
 			}
@@ -414,6 +413,15 @@ func TestCompletionsStreamErrorWire(t *testing.T) {
 			break
 		}
 		chunks = append(chunks, ch)
+	}
+	events := jsontest.EventData(t, raw)
+	if len(events) != len(chunks)+1 {
+		t.Fatalf("got %d data frames for %d chunks and a terminal error", len(events), len(chunks))
+	}
+	for _, ev := range events[:len(chunks)] {
+		jsontest.RoundTrip[CompletionResponse](t, ev.Data)
+		jsontest.InjectUnknown[CompletionResponse](t, ev.Data)
+		jsontest.NoUnknown[CompletionResponse](t, ev.Data, nil)
 	}
 	if len(chunks) == 0 {
 		t.Fatal("no chunks decoded before the error frame")

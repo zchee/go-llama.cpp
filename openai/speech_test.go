@@ -137,6 +137,8 @@ func TestSpeechVoiceNull(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			jsontest.NoUnknown[SpeechRequest](t, data, nil)
+			jsontest.InjectUnknown[SpeechRequest](t, encoded)
 			var members map[string]jsontext.Value
 			if err := json.Unmarshal(encoded, &members); err != nil {
 				t.Fatal(err)

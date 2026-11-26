@@ -107,8 +107,8 @@ func TestPromptObjectRecordings(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			prefix := "testdata/completion/" + tt.fixture
-			jsontest.RoundTrip[CompletionRequest](t, jsontest.ReadFile(t, prefix+".req.json"))
-			jsontest.RoundTrip[CompletionResponse](t, jsontest.ReadFile(t, prefix+".resp.json"))
+			completionCheckWire[CompletionRequest](t, jsontest.ReadFile(t, prefix+".req.json"))
+			completionCheckWire[CompletionResponse](t, jsontest.ReadFile(t, prefix+".resp.json"))
 		})
 	}
 }

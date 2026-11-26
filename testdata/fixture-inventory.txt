@@ -1,0 +1,42 @@
+# Directory, comma-separated suffixes, and scenario names exercised by the wire tests.
+anthropic/testdata/count_tokens req.json,resp.json empty_result history null raw_result references
+anthropic/testdata/messages req.json,resp.json image_error plain stop thinking tool url_error
+anthropic/testdata/messages req.json,resp.sse stream thinking_stream tool_stream
+openai/testdata/chat_completions req.json,resp.json auto context_error continuation direct_schema image json_object logprobs multiple object_schema plain post_sampling reasoning request_error schema stream_error tool tool_named
+openai/testdata/chat_completions req.json,resp.sse reasoning_stream stream tool_stream
+openai/testdata/chat_completions_control req.json,resp.json armed bad_action finished unarmed
+openai/testdata/chat_completions_input_tokens req.json,resp.json basic invalid_chat
+openai/testdata/completions req.json,resp.json aliases basic error error_mmproj_object error_mmproj_tokens error_multimodal logprobs multi stop verbose
+openai/testdata/completions req.json,resp.sse stream stream_error stream_full stream_no_usage stream_verbose
+openai/testdata/embeddings req.json,resp.json base64 content float multimodal_refused pooling_none_refused
+openai/testdata/responses req.json,resp.json basic error reasoning tool
+openai/testdata/responses req.json,resp.sse reasoning_stream stream tool_stream
+openai/testdata/responses_input_tokens req.json,resp.json basic history image options refusal
+openai/testdata/speech req.json,resp.json format
+openai/testdata/speech req.json pcm voice_id_null voice_null wav
+realtime/testdata/realtime client.json,server.json conversation live-asr tools turn-asr voxtral
+systemone/testdata/systemone req.json,resp.json boolean files image invalid mixed number unsupported
+testdata/apply-template req.json,resp.json allowed_tools basic continue_auto continue_content continue_null continue_reasoning direct_schema error named_tool options text_format tool_mode
+testdata/completion req.json,resp.json ban basic batch children grammar media object_mixed object_tokens projection
+testdata/completion req.json,resp.sse children_stream projected_stream stream
+testdata/detokenize req.json,resp.json absent basic empty error invalid_utf8
+testdata/embedding req.json,resp.json legacy multimodal_refused
+testdata/embeddings req.json,resp.json batch empty float_only input_precedence invalid_encoding mixed_decimal nested_prompt null_input null_media openai_legacy per_token pooled
+testdata/health resp.json ok
+testdata/infill req.json,resp.json basic children unsupported
+testdata/infill req.json,resp.sse stream
+testdata/lora_adapters resp.json activation activation_scaled empty enabled init_without_apply scaled
+testdata/lora_adapters req.json,resp.json activation_set clear non_array router_missing_model set
+testdata/metrics resp.json disabled router_missing_model
+testdata/models req.json,resp.json bad-sidecars download load not-found not-running unload
+testdata/models resp.json delete-sidecar delete invalid-delete list-cached list-downloading list-empty list-failed list-incomplete list-loaded list-loading list-sleeping list-unloaded
+testdata/models resp.sse failed pause router
+testdata/models resp.json,resp.sse single
+testdata/props req.json,resp.json disabled set
+testdata/props resp.json get router ui_array ui_null ui_object voices
+testdata/reranking req.json,resp.json disabled image jina tei tei_scores
+testdata/slots resp.json action_disabled busy disabled erase idle used used_debug
+testdata/slots req.json,resp.json invalid_filename missing restore save
+testdata/tokenize req.json,resp.json absent byte_pieces empty error ids literal_special parsed_special text_input text_pieces token_input
+testdata/tts req.json,resp.json empty_input loudness reference speed
+testdata/tts req.json pcm pcm16 raw_b64 stream_wav wav

@@ -69,6 +69,7 @@ func TestLoRAAdaptersWire(t *testing.T) {
 			if diff := gocmp.Diff(tc.want, *got); diff != "" {
 				t.Errorf("adapter list mismatch (-want +got):\n%s", diff)
 			}
+			// The recorded empty list has no object into which a member can be injected.
 			if len(tc.want) > 0 {
 				jsontest.InjectUnknown[[]LoRAAdapter](t, data)
 			}
@@ -95,6 +96,7 @@ func TestLoRASetAdaptersWire(t *testing.T) {
 			if diff := gocmp.Diff(tc.weights, *got); diff != "" {
 				t.Errorf("weights mismatch (-want +got):\n%s", diff)
 			}
+			// Clearing adapters sends an empty array, not an object with an Extra map.
 			if len(tc.weights) > 0 {
 				jsontest.InjectUnknown[[]LoRAWeight](t, request)
 			}
