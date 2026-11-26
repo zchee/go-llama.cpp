@@ -40,6 +40,8 @@ type SpeechRequest struct {
 
 // SpeechVoice is either a name or a voice object. Set at most one: the zero SpeechVoice means no voice and
 // encodes as JSON null, which the server also reads as no voice.
+// The realtime package uses a separate Voice for audio.output.voice, where a reference always encodes an
+// id and null is represented by a wrapper; this HTTP request voice can omit the id and encode null itself.
 type SpeechVoice struct {
 	// Name supplies the string form of a voice.
 	Name *string
@@ -55,6 +57,12 @@ type SpeechVoiceID struct {
 	// Extra preserves additional voice fields.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
+
+// NamedVoice constructs the string form of a speech voice.
+func NamedVoice(name string) SpeechVoice { return SpeechVoice{Name: new(name)} }
+
+// ReferencedVoice constructs the object form of a speech voice with the given ID.
+func ReferencedVoice(id string) SpeechVoice { return SpeechVoice{Object: &SpeechVoiceID{ID: new(id)}} }
 
 // MarshalJSONTo writes the selected wire form, or null for the zero SpeechVoice.
 func (v SpeechVoice) MarshalJSONTo(enc *jsontext.Encoder) error {

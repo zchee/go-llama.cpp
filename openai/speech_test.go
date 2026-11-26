@@ -83,6 +83,40 @@ func TestSpeechWire(t *testing.T) {
 	}
 }
 
+func TestSpeechVoiceConstructors(t *testing.T) {
+	tests := map[string]struct {
+		fixture string
+		voice   SpeechVoice
+		literal SpeechVoice
+	}{
+		"success: named voice":      {fixture: "pcm", voice: NamedVoice("demo"), literal: SpeechVoice{Name: new("demo")}},
+		"success: referenced voice": {fixture: "wav", voice: ReferencedVoice("demo"), literal: SpeechVoice{Object: &SpeechVoiceID{ID: new("demo")}}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			data := jsontest.ReadFile(t, "testdata/speech/"+tc.fixture+".req.json")
+			var req SpeechRequest
+			if err := json.Unmarshal(data, &req); err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(req.Voice, tc.voice); diff != "" {
+				t.Fatalf("voice differs from the recorded request (-want +got):\n%s", diff)
+			}
+			got, err := json.Marshal(tc.voice)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := json.Marshal(tc.literal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(string(want), string(got)); diff != "" {
+				t.Fatalf("voice JSON differs from the literal (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestSpeechVoiceNull(t *testing.T) {
 	tests := map[string]struct {
 		fixture   string

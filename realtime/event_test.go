@@ -173,15 +173,32 @@ func TestRealtimeMaxOutputTokens(t *testing.T) {
 
 func TestRealtimeVoice(t *testing.T) {
 	tests := map[string]struct {
-		v    realtime.Voice
-		want string
-		bad  bool
-	}{"success: name": {realtime.NamedVoice("male"), `"male"`, false}, "success: reference": {realtime.ReferencedVoice("male"), `{"id":"male"}`, false}, "error: unspecified": {bad: true}, "error: ambiguous": {v: realtime.Voice{Name: new("a"), Reference: &realtime.VoiceReference{ID: "b"}}, bad: true}}
+		v        realtime.Voice
+		want     string
+		wantName *string
+		wantRef  *realtime.VoiceReference
+		bad      bool
+	}{
+		"success: name":      {v: realtime.NamedVoice("male"), want: `"male"`, wantName: new("male")},
+		"success: reference": {v: realtime.ReferencedVoice("male"), want: `{"id":"male"}`, wantRef: &realtime.VoiceReference{ID: "male"}},
+		"error: unspecified": {bad: true},
+		"error: ambiguous":   {v: realtime.Voice{Name: new("a"), Reference: &realtime.VoiceReference{ID: "b"}}, bad: true},
+	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			b, err := json.Marshal(tt.v)
 			if (err != nil) != tt.bad || (!tt.bad && string(b) != tt.want) {
 				t.Fatalf("encode voice = %s, %v", b, err)
+			}
+			if tt.bad {
+				return
+			}
+			literal, err := json.Marshal(realtime.Voice{Name: tt.wantName, Reference: tt.wantRef})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(string(literal), string(b)); diff != "" {
+				t.Fatalf("voice JSON differs from the literal (-want +got):\n%s", diff)
 			}
 		})
 	}
