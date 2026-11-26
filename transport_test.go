@@ -315,9 +315,11 @@ func TestRetryableTransportError(t *testing.T) {
 	tests := map[string]struct {
 		ctx    context.Context
 		method string
+		resp   *http.Response
 		err    error
 		want   bool
 	}{
+		"no retry: rejected redirect":   {method: http.MethodGet, resp: &http.Response{StatusCode: http.StatusFound, Body: http.NoBody}, err: &url.Error{Op: "Get", URL: "/next", Err: errors.New("redirect refused")}},
 		"retry: GET refused":            {method: http.MethodGet, err: refused, want: true},
 		"retry: HEAD refused":           {method: http.MethodHead, err: refused, want: true},
 		"retry: OPTIONS refused":        {method: http.MethodOptions, err: refused, want: true},
@@ -335,8 +337,51 @@ func TestRetryableTransportError(t *testing.T) {
 			if ctx == nil {
 				ctx = t.Context()
 			}
-			if got := retryableTransportError(ctx, tt.method, tt.err); got != tt.want {
-				t.Errorf("retryableTransportError(%s, %v) = %t, want %t", tt.method, tt.err, got, tt.want)
+			err := classifyTransportError(ctx, tt.method, tt.resp, tt.err)
+			if _, marked := errors.AsType[*retryableError](err); marked != tt.want {
+				t.Errorf("%s: retryable = %t for %v, want %t", tt.method, marked, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRedirectPolicyStopsReadinessPolling(t *testing.T) {
+	tests := map[string]struct{ cause error }{
+		"error: EOF":               {io.EOF},
+		"error: network operation": {&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			policy := func(*http.Request, []*http.Request) error { return tt.cause }
+			c, err := New("http://localhost", WithAPIKey(testAPIKey), WithHTTPClient(&http.Client{CheckRedirect: policy}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := c.NewRequest(t.Context(), http.MethodGet, "/health", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := req.Clone(t.Context())
+			next.URL.Path = "/" + testAPIKey
+			// Do reports the refused target in a url.Error and returns the redirect response with its body closed.
+			refusal := &url.Error{Op: "Get", URL: next.URL.String(), Err: c.HTTPClient().CheckRedirect(next, []*http.Request{req})}
+			resp := &http.Response{StatusCode: http.StatusFound, Body: http.NoBody}
+			attempts := 0
+			_, err = retry(t.Context(), RetryPolicy{MaxAttempts: 2}, func(ctx context.Context, n int) (int, error) {
+				attempts = n
+				return 0, classifyTransportError(ctx, req.Method, resp, refusal)
+			})
+			err = c.RedactError(err)
+			if attempts != 1 || retryableHealthError(err) {
+				t.Errorf("redirect refused: attempts=%d, poll again=%t", attempts, retryableHealthError(err))
+			}
+			if got, ok := errors.AsType[*url.Error](err); !ok || got != refusal || !errors.Is(err, tt.cause) {
+				t.Fatal("lost redirect error chain")
+			}
+			for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+				if strings.Contains(fmt.Sprintf(verb, err), testAPIKey) {
+					t.Errorf("%s disclosed the key in the redirect URL", verb)
+				}
 			}
 		})
 	}
@@ -644,10 +689,7 @@ func TestRetryCancellation(t *testing.T) {
 				attempts++
 				cancel()
 				doErr := &url.Error{Op: "Get", URL: "http://x", Err: context.Canceled}
-				if retryableTransportError(ctx, http.MethodGet, doErr) {
-					return 0, &retryableError{err: doErr}
-				}
-				return 0, doErr
+				return 0, classifyTransportError(ctx, http.MethodGet, nil, doErr)
 			})
 			if attempts != 1 || !errors.Is(err, context.Canceled) {
 				t.Errorf("attempts = %d, err = %v; want 1 attempt and context.Canceled", attempts, err)

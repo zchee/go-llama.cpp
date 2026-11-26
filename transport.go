@@ -196,10 +196,7 @@ func (c *Client) attempt(ctx context.Context, req *http.Request, n int) (*http.R
 	}
 	resp, err := c.hc.Do(r)
 	if err != nil {
-		if retryableTransportError(ctx, req.Method, err) {
-			return nil, &retryableError{err: err}
-		}
-		return nil, err
+		return nil, classifyTransportError(ctx, req.Method, resp, err)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return resp, nil
@@ -237,17 +234,26 @@ func requestForAttempt(req *http.Request, n int) (*http.Request, error) {
 	return r, nil
 }
 
-// retryableTransportError reports whether a transport error may be retried: only for idempotent methods, because
-// the server may have received a non-idempotent request before the connection failed, and never once ctx is done.
-func retryableTransportError(ctx context.Context, method string, err error) bool {
+// redirectPolicyError preserves the caller's refusal even if its cause looks like a connection failure.
+type redirectPolicyError struct{ error }
+
+func (e *redirectPolicyError) Unwrap() error { return e.error }
+
+// classifyTransportError marks failures before headers for retry only for idempotent methods: the server may
+// already have received a non-idempotent request before the connection failed.
+func classifyTransportError(ctx context.Context, method string, resp *http.Response, err error) error {
+	if resp != nil {
+		// Do returns both a response and an error only when CheckRedirect refuses the redirect.
+		return &redirectPolicyError{err}
+	}
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
+		return err
 	}
 	switch method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete:
-		return true
+		return &retryableError{err: err}
 	default:
-		return false
+		return err
 	}
 }
 

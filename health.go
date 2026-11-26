@@ -60,6 +60,9 @@ func (c *Client) Health(ctx context.Context, opts ...RequestOption) (*HealthResp
 
 // retryableHealthError distinguishes connection failures before headers from invalid health responses.
 func retryableHealthError(err error) bool {
+	if _, refused := errors.AsType[*redirectPolicyError](err); refused {
+		return false
+	}
 	if e, ok := errors.AsType[*APIError](err); ok {
 		return e.StatusCode == http.StatusServiceUnavailable
 	}

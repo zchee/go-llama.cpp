@@ -183,7 +183,8 @@ func WithAutoload(autoload bool) RequestOption {
 	return WithQuery("autoload", strconv.FormatBool(autoload))
 }
 
-// WithNoRetry sends the request exactly once, whatever the client's retry policy is.
+// WithNoRetry limits this library to one attempt. net/http may still follow redirects or replay an idempotent
+// request after a reused connection fails.
 func WithNoRetry() RequestOption {
 	return func(rc *requestConfig) { rc.noRetry = true }
 }
