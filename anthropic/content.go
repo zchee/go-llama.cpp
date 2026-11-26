@@ -1,0 +1,147 @@
+// Copyright 2026 The go-llama.cpp Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package anthropic
+
+import (
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
+	"fmt"
+	"slices"
+)
+
+// Message is a user or assistant turn in the conversation history.
+type Message struct {
+	// Role is the speaker of the turn.
+	Role string `json:"role"`
+	// Content is text or a list of blocks. The server skips an assistant turn with omitted content.
+	Content Content                   `json:"content,omitzero"`
+	Extra   map[string]jsontext.Value `json:",embed"`
+}
+
+// Content holds a string, a list of blocks, or an explicit null. Its zero value omits an optional member.
+type Content struct {
+	text   *string
+	blocks []ContentBlock
+	null   bool
+}
+
+// TextContent returns content encoded as one string, including an empty one.
+func TextContent(s string) Content { return Content{text: &s} }
+
+// BlocksContent returns content encoded as an array, including an empty one.
+func BlocksContent(blocks ...ContentBlock) Content {
+	if blocks == nil {
+		blocks = []ContentBlock{}
+	}
+	return Content{blocks: slices.Clone(blocks)}
+}
+
+// NullContent returns an explicit null instead of omitting the member.
+func NullContent() Content { return Content{null: true} }
+
+// Text returns the string and whether the content was given in string form.
+func (c Content) Text() (string, bool) {
+	if c.text == nil {
+		return "", false
+	}
+	return *c.text, true
+}
+
+// Blocks returns the array of blocks, or nil for a non-array value.
+func (c Content) Blocks() []ContentBlock { return c.blocks }
+
+// IsNull reports whether the content is explicitly null.
+func (c Content) IsNull() bool { return c.null }
+
+// IsZero reports whether the content is unset.
+func (c Content) IsZero() bool { return c.text == nil && c.blocks == nil && !c.null }
+
+// MarshalJSONTo encodes the content in its original wire form.
+func (c Content) MarshalJSONTo(enc *jsontext.Encoder) error {
+	switch {
+	case c.text != nil:
+		return enc.WriteToken(jsontext.String(*c.text))
+	case c.blocks != nil:
+		return json.MarshalEncode(enc, c.blocks)
+	default:
+		return enc.WriteToken(jsontext.Null)
+	}
+}
+
+// UnmarshalJSONFrom decodes a string, an array of blocks, or null.
+func (c *Content) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	switch kind := dec.PeekKind(); kind {
+	case '"':
+		var s string
+		if err := json.UnmarshalDecode(dec, &s); err != nil {
+			return err
+		}
+		*c = TextContent(s)
+	case '[':
+		var blocks []ContentBlock
+		if err := json.UnmarshalDecode(dec, &blocks); err != nil {
+			return err
+		}
+		*c = Content{blocks: blocks}
+	case 'n':
+		if _, err := dec.ReadToken(); err != nil {
+			return err
+		}
+		*c = NullContent()
+	default:
+		return fmt.Errorf("anthropic: content must be a string, block array or null, got %s", kind)
+	}
+	return nil
+}
+
+// ContentBlock is one block of message content. System instructions use only text blocks.
+type ContentBlock struct {
+	// Type selects text, thinking, image, tool_use, tool_result or a tool_reference inside a result.
+	Type string `json:"type"`
+	// Text holds a text block's content.
+	Text *string `json:"text,omitzero"`
+	// Thinking holds model reasoning.
+	Thinking *string `json:"thinking,omitzero"`
+	// Signature is empty in thinking blocks emitted by local models.
+	Signature *string `json:"signature,omitzero"`
+	// Source supplies the image of an image block.
+	Source *ImageSource `json:"source,omitzero"`
+	// ID identifies a tool_use block.
+	ID *string `json:"id,omitzero"`
+	// Name is the called tool's name.
+	Name *string `json:"name,omitzero"`
+	// Input holds the tool arguments as a JSON value, not a JSON-encoded string.
+	Input jsontext.Value `json:"input,omitzero"`
+	// ToolUseID identifies the call a tool_result block answers.
+	ToolUseID *string `json:"tool_use_id,omitzero"`
+	// Content holds a tool result's text or nested text, image and tool_reference blocks.
+	Content Content `json:"content,omitzero"`
+	// ToolName names the deferred tool in a tool_reference.
+	ToolName *string                   `json:"tool_name,omitzero"`
+	Extra    map[string]jsontext.Value `json:",embed"`
+}
+
+// ImageSource supplies an image by URL or as base64 data.
+type ImageSource struct {
+	// Type is "base64" or "url".
+	Type string `json:"type"`
+	// MediaType is the MIME type of base64 data; the server defaults to image/jpeg.
+	MediaType *string `json:"media_type,omitzero"`
+	// Data is the base64-encoded image.
+	Data *string `json:"data,omitzero"`
+	// URL is the location of an image for a url source.
+	URL   *string                   `json:"url,omitzero"`
+	Extra map[string]jsontext.Value `json:",embed"`
+}

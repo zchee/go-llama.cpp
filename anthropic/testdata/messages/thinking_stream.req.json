@@ -1,0 +1,1 @@
+{"messages":[{"role":"user","content":"Think."}],"temperature":0,"max_tokens":64,"extra_params":{"grammar":"root ::= \"<think>check</think>yes\""},"stream":true}

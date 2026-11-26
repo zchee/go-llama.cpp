@@ -1,0 +1,1 @@
+{"id":"chatcmpl-G7VfUjcnjNU8hSgE7b95btcwIEhpAlzJ","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"check","signature":""},{"type":"text","text":"yes"}],"model":"stories","stop_reason":"end_turn","stop_sequence":null,"usage":{"cache_read_input_tokens":0,"input_tokens":45,"output_tokens":21}}

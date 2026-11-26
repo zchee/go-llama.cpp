@@ -1,0 +1,1 @@
+{"id":"chatcmpl-PYMHTEcPd4WBZShJ0D7NhJyccCMgvg7o","type":"message","role":"assistant","content":[{"type":"tool_use","id":"rl7yAFYlaJZx8Hfpt3rTnxzCZUHH6sGg","name":"ping","input":{"ok":false}}],"model":"stories","stop_reason":"max_tokens","stop_sequence":null,"usage":{"cache_read_input_tokens":0,"input_tokens":539,"output_tokens":40}}

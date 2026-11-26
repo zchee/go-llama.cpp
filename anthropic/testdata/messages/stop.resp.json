@@ -1,0 +1,1 @@
+{"id":"chatcmpl-yeJZajcJIDLdYzAfwxO3QSaNBfDGIh5J","type":"message","role":"assistant","content":[{"type":"text","text":"\""}],"model":"stories","stop_reason":"end_turn","stop_sequence":"Here","usage":{"cache_read_input_tokens":0,"input_tokens":81,"output_tokens":4}}

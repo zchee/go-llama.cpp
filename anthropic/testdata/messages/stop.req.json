@@ -1,0 +1,1 @@
+{"system":"Tell a short story.","messages":[{"role":"user","content":"Once upon a time"}],"max_tokens":8,"temperature":0,"top_p":1,"top_k":40,"extra_params":{"seed":42,"min_p":0.05,"cache_prompt":false},"stop_sequences":"Here"}
