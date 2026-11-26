@@ -140,7 +140,7 @@ type SamplingParams struct {
 
 	// Grammar is a GBNF grammar constraining the output.
 	Grammar *string `json:"grammar,omitzero"`
-	// JSONSchema is a JSON schema constraining the output; it takes precedence over Grammar.
+	// JSONSchema constrains the output when Grammar is absent; the server ignores it when Grammar is set.
 	JSONSchema jsontext.Value `json:"json_schema,omitzero"`
 	// GrammarLazy applies the grammar only once a trigger is generated.
 	GrammarLazy *bool `json:"grammar_lazy,omitzero"`
@@ -298,9 +298,8 @@ const (
 )
 
 // Prompt is the "prompt" (or "content") of a native request. The server accepts a string, an array of token ids,
-// an array mixing strings and token ids, an object with a prompt string and multimodal data, or an array of those
-// for several prompts at once. Build one with TextPrompt, TokenPrompt, MixedPrompt, ObjectPrompt,
-// MultimodalPrompt or BatchPrompt.
+// an array mixing strings and token ids, a PromptObject, or an array of those for several prompts at once.
+// Build one with TextPrompt, TokenPrompt, MixedPrompt, ObjectPrompt, MultimodalPrompt or BatchPrompt.
 type Prompt struct {
 	kind   PromptKind
 	text   string
@@ -312,12 +311,55 @@ type Prompt struct {
 
 // PromptObject is the object form of a Prompt.
 type PromptObject struct {
-	// PromptString is the prompt text; with multimodal data it holds the media markers.
-	PromptString string `json:"prompt_string"`
+	// PromptString is a single string (TokenizeText) or a flat array of text and token IDs (TokenizeParts).
+	// With MultimodalData it must be a string containing the media markers.
+	PromptString TokenizeContent `json:"prompt_string"`
 	// MultimodalData are the media files (images, audio), sent base64-encoded.
 	MultimodalData [][]byte `json:"multimodal_data,omitzero"`
 
 	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+type promptObjectWire PromptObject
+
+func (o *PromptObject) validate(hasMedia bool) error {
+	if o.PromptString.IsZero() {
+		return errors.New("llama: prompt_string is required")
+	}
+	if _, text := o.PromptString.Text(); hasMedia && !text {
+		return errors.New("llama: prompt_string must be a string with multimodal_data")
+	}
+	return nil
+}
+
+// MarshalJSONTo implements json.MarshalerTo.
+func (o PromptObject) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if err := o.validate(o.MultimodalData != nil); err != nil {
+		return err
+	}
+	return json.MarshalEncode(enc, (*promptObjectWire)(&o))
+}
+
+// UnmarshalJSONFrom implements json.UnmarshalerFrom.
+func (o *PromptObject) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	var raw struct {
+		promptObjectWire
+		Media jsontext.Value `json:"multimodal_data"`
+	}
+	if err := json.UnmarshalDecode(dec, &raw); err != nil {
+		return err
+	}
+	next := PromptObject(raw.promptObjectWire)
+	if err := next.validate(raw.Media != nil); err != nil {
+		return err
+	}
+	if raw.Media != nil {
+		if err := json.Unmarshal(raw.Media, &next.MultimodalData); err != nil {
+			return err
+		}
+	}
+	*o = next
+	return nil
 }
 
 // PromptPart is one element of a mixed prompt: a string or a token id.
@@ -358,7 +400,7 @@ func ObjectPrompt(o PromptObject) Prompt { return Prompt{kind: PromptKindObject,
 
 // MultimodalPrompt returns a prompt carrying media files. text holds one media marker per file.
 func MultimodalPrompt(text string, data ...[]byte) Prompt {
-	return ObjectPrompt(PromptObject{PromptString: text, MultimodalData: data})
+	return ObjectPrompt(PromptObject{PromptString: TokenizeText(text), MultimodalData: data})
 }
 
 // BatchPrompt returns several prompts sent in one request. The elements must not be batches themselves.
@@ -412,7 +454,10 @@ func (o *PromptObject) equal(q *PromptObject) bool {
 	if o == nil || q == nil {
 		return o == q
 	}
-	return o.PromptString == q.PromptString &&
+	ot, os := o.PromptString.Text()
+	qt, qs := q.PromptString.Text()
+	return ot == qt && os == qs && o.PromptString.IsZero() == q.PromptString.IsZero() &&
+		slices.Equal(o.PromptString.Parts(), q.PromptString.Parts()) &&
 		slices.EqualFunc(o.MultimodalData, q.MultimodalData, bytes.Equal) &&
 		maps.EqualFunc(o.Extra, q.Extra, func(a, b jsontext.Value) bool { return bytes.Equal(a, b) })
 }

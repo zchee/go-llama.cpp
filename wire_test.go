@@ -46,8 +46,13 @@ func TestPromptJSON(t *testing.T) {
 			json:     `{"prompt_string":"<__media__> describe","multimodal_data":["iVBORw=="]}`,
 			wantKind: PromptKindObject,
 		},
+		"success: all strings in an object are one prompt": {
+			prompt:   ObjectPrompt(PromptObject{PromptString: TokenizeParts(TextPart("a"), TextPart("b"))}),
+			json:     `{"prompt_string":["a","b"]}`,
+			wantKind: PromptKindObject,
+		},
 		"success: object keeps unknown members": {
-			prompt:   ObjectPrompt(PromptObject{PromptString: "x", Extra: map[string]jsontext.Value{"future": jsontext.Value(`{"a":1}`)}}),
+			prompt:   ObjectPrompt(PromptObject{PromptString: TokenizeText("x"), Extra: map[string]jsontext.Value{"future": jsontext.Value(`{"a":1}`)}}),
 			json:     `{"prompt_string":"x","future":{"a":1}}`,
 			wantKind: PromptKindObject,
 		},
@@ -56,7 +61,7 @@ func TestPromptJSON(t *testing.T) {
 				TextPrompt("a"),
 				TokenPrompt(1, 2),
 				MixedPrompt(TextPart("b"), TokenPart(3)),
-				ObjectPrompt(PromptObject{PromptString: "c"}),
+				ObjectPrompt(PromptObject{PromptString: TokenizeText("c")}),
 			),
 			json:     `["a",[1,2],["b",3],{"prompt_string":"c"}]`,
 			wantKind: PromptKindBatch,
@@ -94,6 +99,20 @@ func TestPromptJSON(t *testing.T) {
 	}
 }
 
+func TestPromptObjectRecordings(t *testing.T) {
+	tests := map[string]struct{ fixture string }{
+		"success: mixed text and token": {"object_mixed"},
+		"success: token IDs":            {"object_tokens"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			prefix := "testdata/completion/" + tt.fixture
+			jsontest.RoundTrip[CompletionRequest](t, jsontest.ReadFile(t, prefix+".req.json"))
+			jsontest.RoundTrip[CompletionResponse](t, jsontest.ReadFile(t, prefix+".resp.json"))
+		})
+	}
+}
+
 func TestPromptAccessors(t *testing.T) {
 	p := MixedPrompt(TextPart("a"), TokenPart(7))
 	if s, ok := p.Parts()[0].Text(); !ok || s != "a" {
@@ -105,8 +124,8 @@ func TestPromptAccessors(t *testing.T) {
 	if _, ok := p.Parts()[0].Token(); ok {
 		t.Errorf("a text part reports a token")
 	}
-	if TextPrompt("x").Text() != "x" || len(TokenPrompt(1, 2).Tokens()) != 2 ||
-		ObjectPrompt(PromptObject{PromptString: "o"}).Object().PromptString != "o" || len(BatchPrompt(TextPrompt("a")).Batch()) != 1 {
+	text, ok := MultimodalPrompt("o").Object().PromptString.Text()
+	if TextPrompt("x").Text() != "x" || len(TokenPrompt(1, 2).Tokens()) != 2 || !ok || text != "o" || len(BatchPrompt(TextPrompt("a")).Batch()) != 1 {
 		t.Errorf("accessors do not return the built content")
 	}
 	if !(Prompt{}).IsZero() || !(Prompt{}).Equal(Prompt{}) || TextPrompt("a").Equal(TokenPrompt(1)) {
@@ -116,6 +135,7 @@ func TestPromptAccessors(t *testing.T) {
 
 func TestPromptJSONErrors(t *testing.T) {
 	marshal := map[string]Prompt{
+		"error: parts with media":      ObjectPrompt(PromptObject{PromptString: TokenizeParts(TokenPart(1)), MultimodalData: [][]byte{}}),
 		"error: mixed without a token": MixedPrompt(TextPart("a"), TextPart("b")),
 		"error: nested batch":          BatchPrompt(BatchPrompt(TextPrompt("a"))),
 		"error: zero in batch":         BatchPrompt(Prompt{}),
@@ -128,6 +148,9 @@ func TestPromptJSONErrors(t *testing.T) {
 		})
 	}
 	unmarshal := map[string]string{
+		"error: parts with empty media":    `{"prompt_string":[1],"multimodal_data":[]}`,
+		"error: parts with null media":     `{"prompt_string":[1],"multimodal_data":null}`,
+		"error: nested object parts":       `{"prompt_string":[[1]]}`,
 		"error: number":                    `12`,
 		"error: bool":                      `true`,
 		"error: object inside mixed":       `[1,{"a":1}]`,
@@ -366,6 +389,15 @@ func TestSharedResponseTypes(t *testing.T) {
 }
 
 func FuzzPrompt(f *testing.F) {
+	for _, fixture := range []string{"object_mixed", "object_tokens"} {
+		var req struct {
+			Prompt jsontext.Value `json:"prompt"`
+		}
+		if err := json.Unmarshal(jsontest.ReadFile(f, "testdata/completion/"+fixture+".req.json"), &req); err != nil {
+			f.Fatal(err)
+		}
+		f.Add(string(req.Prompt))
+	}
 	for _, seed := range []string{
 		`"text"`, `[1,2,3]`, `[1,"a",2]`, `{"prompt_string":"x","multimodal_data":["AA=="]}`,
 		`["a",[1,2],{"prompt_string":"b"}]`, `[]`, `null`, `[[1,"a"]]`, `["x",null]`, `[null]`,
