@@ -126,7 +126,7 @@ func (c *Content) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		if err != nil {
 			return err
 		}
-		*c = Content{raw: slices.Clone(raw)}
+		*c = RawContent(raw)
 	}
 	return nil
 }

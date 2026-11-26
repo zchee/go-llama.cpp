@@ -73,9 +73,7 @@ func NewPayload(v any) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
-	var p Payload
-	err = json.Unmarshal(data, &p)
-	return p, err
+	return Raw(data)
 }
 
 // Kind returns the shape of the payload.
