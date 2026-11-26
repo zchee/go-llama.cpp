@@ -1,0 +1,1 @@
+{"input":"Hi","n_predict":1,"response_format":"wav","seed":42,"lang":"en","raw_prompt":false,"top_k":1,"top_p":1,"temperature":0,"repeat_penalty":1.05,"speed":1,"loudness":0,"cfg_scale":0,"flow_steps":0,"stream":false}

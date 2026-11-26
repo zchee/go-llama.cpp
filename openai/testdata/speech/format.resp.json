@@ -1,0 +1,1 @@
+{"error":{"code":400,"message":"Only 'wav' and 'pcm' response_format are supported for speech","type":"invalid_request_error"}}

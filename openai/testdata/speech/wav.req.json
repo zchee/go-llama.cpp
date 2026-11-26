@@ -1,0 +1,1 @@
+{"input":"Hi","model":"tts","voice":{"id":"demo"},"instructions":"Quietly","response_format":"wav","n_predict":1,"seed":42}
