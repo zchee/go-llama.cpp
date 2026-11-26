@@ -300,7 +300,7 @@ The integration suite checks the server's refusal responses to `reasoning_end`. 
 
 Request options include `WithQuery`, `WithHeader`, and `WithAutoload`. For model selection, use `WithModelQuery` for GET requests, `DialOptions.Model` for WebSocket handshakes, and the `model` body field for POST requests routed to a model. Pass handshake request options through `realtime.DialOptions.RequestOptions`.
 
-`WithFailOnNoSlot()` sets `fail_on_no_slot=1`; it does not change the retry policy. A busy `/slots` response is returned without retrying, whether the query was set with this option, with `WithQuery`, or in the path.
+`WithFailOnNoSlot()` sets `fail_on_no_slot=1` and limits the library to one attempt. Setting the same query in the path or with `WithQuery` also returns a busy `/slots` response without retrying, but still allows retries if the connection fails.
 
 ## Errors
 

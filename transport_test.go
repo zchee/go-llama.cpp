@@ -765,7 +765,7 @@ func TestCallConnectionFailure(t *testing.T) {
 		"retry: GET is retried up to the limit": {method: http.MethodGet, path: "/props", wantAttempts: "attempts=3"},
 		"no retry: POST is sent once":           {method: http.MethodPost, path: "/props", wantAttempts: "attempts=1"},
 		"no retry: WithNoRetry":                 {method: http.MethodGet, path: "/props", opts: []RequestOption{WithNoRetry()}, wantAttempts: "attempts=1"},
-		"retry: busy slot option":               {method: http.MethodGet, path: "/slots", opts: []RequestOption{WithFailOnNoSlot()}, wantAttempts: "attempts=3"},
+		"no retry: busy slot option":            {method: http.MethodGet, path: "/slots", opts: []RequestOption{WithFailOnNoSlot()}, wantAttempts: "attempts=1"},
 		"retry: busy slot query option":         {method: http.MethodGet, path: "/slots", opts: []RequestOption{WithQuery("fail_on_no_slot", "1")}, wantAttempts: "attempts=3"},
 		"retry: busy slot query in path":        {method: http.MethodGet, path: "/slots?fail_on_no_slot=1", wantAttempts: "attempts=3"},
 	}

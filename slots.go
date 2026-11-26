@@ -103,10 +103,13 @@ type SlotEraseResponse struct {
 	Extra   map[string]jsontext.Value `json:",embed"`
 }
 
-// WithFailOnNoSlot makes Slots return a busy 503 response immediately, without retrying it. A failure to reach
-// the server is retried according to the client's policy, as for other idempotent requests.
+// WithFailOnNoSlot asks Slots to return 503 when no slot is free.
+// Unlike setting fail_on_no_slot in the path or with WithQuery, this option limits the library to one attempt even if the connection fails.
 func WithFailOnNoSlot() RequestOption {
-	return WithQuery("fail_on_no_slot", "1")
+	return func(rc *requestConfig) {
+		WithQuery("fail_on_no_slot", "1")(rc)
+		rc.noRetry = true
+	}
 }
 
 // Slots reports the state of every inference slot.
