@@ -47,6 +47,7 @@ func TestResponsesWire(t *testing.T) {
 		fixture         string
 		isCount, stream bool
 		errStatus       int
+		wantTokens      int64
 	}{
 		"success: completed message":                      {fixture: "basic"},
 		"success: completed function call":                {fixture: "tool"},
@@ -55,7 +56,7 @@ func TestResponsesWire(t *testing.T) {
 		"success: function argument events":               {fixture: "tool_stream", stream: true},
 		"success: reasoning events":                       {fixture: "reasoning_stream", stream: true},
 		"error: unsupported input file":                   {fixture: "error", errStatus: 400},
-		"success: string input count":                     {fixture: "basic", isCount: true},
+		"success: string input count":                     {fixture: "basic", isCount: true, wantTokens: 45},
 		"success: history with reasoning and tool output": {fixture: "history", isCount: true},
 		"success: configured format and named tool":       {fixture: "options", isCount: true},
 		"error: image without a projector":                {fixture: "image", isCount: true, errStatus: 500},
@@ -82,7 +83,10 @@ func TestResponsesWire(t *testing.T) {
 				return
 			}
 			if tt.isCount {
-				responsesWire[openai.InputTokensResponse](t, data)
+				count := responsesWire[openai.InputTokensResponse](t, data)
+				if tt.wantTokens != 0 && (count.Object != "response.input_tokens" || count.InputTokens != tt.wantTokens) {
+					t.Errorf("count = %+v, want object response.input_tokens and %d tokens", count, tt.wantTokens)
+				}
 				return
 			}
 			r := responsesWire[openai.Response](t, data)

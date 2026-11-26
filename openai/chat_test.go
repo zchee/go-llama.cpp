@@ -209,6 +209,9 @@ func chatStreamWire(t *testing.T, prefix, fixture string) {
 	}
 }
 
+// The input_tokens fixtures were recorded from llama-server v1.1.0 with integration/cmd/record; the chat
+// completions and responses count endpoints both answer through handle_count_tokens in
+// tools/server/server-context.cpp.
 func TestChatCountAndControlWire(t *testing.T) {
 	c, err := llama.New("http://localhost")
 	if err != nil {
@@ -216,9 +219,10 @@ func TestChatCountAndControlWire(t *testing.T) {
 	}
 	tests := map[string]struct {
 		dir, name, path  string
+		tokens           int64
 		success, invalid bool
 	}{
-		"success: count":                 {dir: "chat_completions_input_tokens", name: "basic", path: "/input_tokens"},
+		"success: count":                 {dir: "chat_completions_input_tokens", name: "basic", path: "/input_tokens", tokens: 75},
 		"error: invalid conversation":    {dir: "chat_completions_input_tokens", name: "invalid_chat", path: "/input_tokens", invalid: true},
 		"success: enabled live control":  {dir: "chat_completions_control", name: "armed", path: "/control", success: true},
 		"success: disabled live control": {dir: "chat_completions_control", name: "unarmed", path: "/control"},
@@ -240,9 +244,11 @@ func TestChatCountAndControlWire(t *testing.T) {
 				return
 			}
 			if tt.path == "/input_tokens" {
+				jsontest.RoundTrip[chatShape](t, body)
+				jsontest.InjectUnknown[chatShape](t, body)
 				res := chatWire[InputTokensResponse](t, data)
-				if res.InputTokens <= 0 || res.Object != "response.input_tokens" {
-					t.Errorf("count = %+v", res)
+				if res.InputTokens != tt.tokens || res.Object != "response.input_tokens" {
+					t.Errorf("count = %+v, want object response.input_tokens and %d tokens", res, tt.tokens)
 				}
 				return
 			}
