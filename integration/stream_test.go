@@ -22,6 +22,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"sync"
 	"testing"
 	"time"
@@ -50,15 +51,26 @@ var streamRequest = map[string]any{
 type cancelWriteConn struct {
 	net.Conn
 	cancel context.CancelFunc
-	after  byte
 }
 
 func (c *cancelWriteConn) Write(p []byte) (int, error) {
 	n, err := c.Conn.Write(p)
-	if n > 0 && p[n-1] == c.after {
+	if n > 0 && p[n-1] == ' ' {
 		c.cancel()
 	}
 	return n, err
+}
+
+// Withhold response headers even if the real server replies before cancellation.
+// Writes still go directly to the server connection.
+type holdResponseConn struct {
+	net.Conn
+	ctx context.Context
+}
+
+func (c *holdResponseConn) Read([]byte) (int, error) {
+	<-c.ctx.Done()
+	return 0, c.ctx.Err()
 }
 
 type streamRequestBody struct {
@@ -78,28 +90,41 @@ type streamRequestTransport struct {
 }
 
 func (tr *streamRequestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.WithContext(req.Context())
 	req.Body = &streamRequestBody{req.Body, sync.OnceFunc(func() { close(tr.closed) })}
 	return tr.Transport.RoundTrip(req)
 }
 
 func TestStreamCancelInFlight(t *testing.T) {
 	srv := presetStories260K.server(t)
-	tests := map[string]struct{ after byte }{
-		"error: during upload":       {after: ' '},
-		"error: waiting for headers": {after: '}'},
+	tests := map[string]struct{ waitForHeaders bool }{
+		"error: during upload":       {},
+		"error: waiting for headers": {waitForHeaders: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
+			written := make(chan struct{})
+			if tt.waitForHeaders {
+				ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(info httptrace.WroteRequestInfo) {
+					if info.Err == nil && ctx.Err() == nil {
+						close(written)
+						cancel()
+					}
+				}})
+			}
 			tr := &streamRequestTransport{http.DefaultTransport.(*http.Transport).Clone(), make(chan struct{})}
 			dial := tr.DialContext
-			tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				conn, err := dial(ctx, network, addr)
+			tr.DialContext = func(dialCtx context.Context, network, addr string) (net.Conn, error) {
+				conn, err := dial(dialCtx, network, addr)
 				if err != nil {
 					return nil, err
 				}
-				return &cancelWriteConn{conn, cancel, tt.after}, nil
+				if tt.waitForHeaders {
+					return &holdResponseConn{conn, ctx}, nil
+				}
+				return &cancelWriteConn{conn, cancel}, nil
 			}
 			t.Cleanup(tr.CloseIdleConnections)
 			c, err := llama.New(srv.URL, llama.WithHTTPClient(&http.Client{Transport: tr, Timeout: 10 * time.Second}))
@@ -114,6 +139,13 @@ func TestStreamCancelInFlight(t *testing.T) {
 				yields++
 				if event != nil || !errors.Is(err, context.Canceled) {
 					t.Errorf("stream yielded (%v, %v), want (nil, context.Canceled)", event, err)
+				}
+			}
+			if tt.waitForHeaders {
+				select {
+				case <-written:
+				default:
+					t.Error("canceled before the full request was written")
 				}
 			}
 			if yields != 1 {
