@@ -85,7 +85,7 @@ func walkRequest(v reflect.Value, parent *requestVisit) error {
 	case reflect.Pointer, reflect.Interface:
 		return walkRequest(v.Elem(), parent)
 	case reflect.Slice, reflect.Array:
-		if v.Type() == reflect.TypeFor[jsontext.Value]() {
+		if !mayContainRequest(v.Type().Elem()) {
 			return nil
 		}
 		for i := range v.Len() {
@@ -94,6 +94,9 @@ func walkRequest(v reflect.Value, parent *requestVisit) error {
 			}
 		}
 	case reflect.Map:
+		if !mayContainRequest(v.Type().Elem()) {
+			return nil
+		}
 		for it := v.MapRange(); it.Next(); {
 			if err := walkRequest(it.Value(), parent); err != nil {
 				return err

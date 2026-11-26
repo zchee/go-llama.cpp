@@ -18,6 +18,7 @@ import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -73,6 +74,7 @@ func TestRequestExtra(t *testing.T) {
 		"error: map element":                              {nested{Table: map[string]record{"entry": child}}, "record", "enabled", "Flag"},
 		"error: object behind custom prompt encoder":      {CompletionRequest{Prompt: ObjectPrompt(PromptObject{PromptString: TokenizeText("x"), Extra: map[string]jsontext.Value{"multimodal_data": jsontext.Value(`[]`)}})}, "PromptObject", "multimodal_data", "MultimodalData"},
 		"success: exact names only":                       {body: record{Extra: map[string]jsontext.Value{"Enabled": jsontext.Value(`1`)}}},
+		"error: top-level interface element":              {[]any{child}, "record", "enabled", "Flag"},
 		"error: top-level slice":                          {[]record{{}, child}, "record", "enabled", "Flag"},
 		"error: top-level array":                          {[2]record{{}, child}, "record", "enabled", "Flag"},
 		"error: top-level map":                            {map[string]record{"entry": child}, "record", "enabled", "Flag"},
@@ -154,6 +156,47 @@ func TestRequestExtraCycle(t *testing.T) {
 				t.Errorf("encodeBody error = %v, want a JSON cycle error", err)
 			}
 		})
+	}
+}
+
+func TestRequestExtraScalarMapAllocations(t *testing.T) {
+	m := make(map[string]int)
+	allocs := func() float64 {
+		return testing.AllocsPerRun(10, func() {
+			if err := extraguard.Check(m); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	empty := allocs()
+	for i := range 128 {
+		m[strconv.Itoa(i)] = i
+	}
+	if got := allocs(); got > empty {
+		t.Errorf("scalar map check allocated %.0f times, empty map %.0f; allocations must not grow with entry count", got, empty)
+	}
+}
+
+func BenchmarkRequestExtraScalarCollections(b *testing.B) {
+	for _, size := range []int{1, 4096} {
+		m := make(map[string]int, size)
+		for i := range size {
+			m[strconv.Itoa(i)] = i
+		}
+		tests := map[string]struct{ body any }{
+			"bytes": {make([]byte, size)},
+			"map":   {m},
+		}
+		for name, tt := range tests {
+			b.Run(name+"/"+strconv.Itoa(size), func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					if err := extraguard.Check(tt.body); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
 	}
 }
 
