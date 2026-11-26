@@ -13,3 +13,113 @@ models:
     file: stories260K-f32.gguf
     sha256: 270cba1bd5109f42d03350f60406024560464db173c0e387d91f0426d3bd256d
     size: 1185376
+
+  # Preset bert_bge_small: embeddings (start the server with --embedding).
+  bert-bge-small:
+    repo: ggml-org-dev/bert-bge-small-GGUF
+    revision: 7d5305c8e617a6c8745480aa7436f743b4dffd9e
+    file: ggml-model-f16.gguf
+    sha256: f0b2fef971e8366438bfd2d9aefea1b0115919389448806d290237f638bae999
+    size: 67308128
+
+  # Preset jina_reranker_tiny: reranking (start the server with --reranking).
+  jina-reranker-tiny:
+    repo: ggml-org-dev/jina-reranker-v1-tiny-en-GGUF
+    revision: f4b8209ad228c20b31de6fca4c3ffbc59b8643cb
+    file: ggml-model-f16.gguf
+    sha256: ad9f450c1053a431e2e3746d1f9f7768fb9183cf0796e046983a3449dca093c2
+    size: 67504480
+
+  # Preset tinyllama_infill: a tiny text model with fill-in-the-middle tokens.
+  stories260K-infill:
+    repo: ggml-org-dev/test-model-stories260K-infill
+    revision: 3767af280c0b8e8a323861ecb7a1774d46a455e6
+    file: stories260K-infill-F32.gguf
+    sha256: 102f2a00a5bfc56d0706467830bda9e39fa5d7df1cd55e47291dd25b4b509140
+    size: 1185760
+
+  # Preset stories15m_moe: the base model of the LoRA adapter below.
+  stories15M-MOE:
+    repo: ggml-org-dev/stories15M_MOE
+    revision: b79d85fd44cb281d525c0f75e79b522b9fdf714b
+    file: stories15M_MOE-F16.gguf
+    sha256: 1240dfc1957df9f3550dd6c1d9e64b466fc2f452d8bc34bd4e45e1a1e2ca6055
+    size: 73466432
+
+  # LoRA adapter for stories15M-MOE (pass it to the server with --lora).
+  stories15M-MOE-lora:
+    repo: ggml-org-dev/stories15M_MOE
+    revision: b79d85fd44cb281d525c0f75e79b522b9fdf714b
+    file: moe_shakespeare15M.gguf
+    sha256: d1e0617d7e10de960639d18a4620ec8c6bb56343f45692830d3634a1a3e1fe1a
+    size: 16364896
+
+  # Preset tinypockettts: speech generation. The mmproj file goes to the server with --mmproj.
+  tinyPocketTTS:
+    repo: ggml-org-dev/tinyPocketTTS-for-testing-gguf
+    revision: 8abe0e4eb1659892589aa6d9e3f7c8e3bbcd5092
+    file: tinyPocketTTS-for-testing-Q8_0.gguf
+    sha256: 5f9b52cada6bf3888abe46581ec071e6ab4672b3e6c5400e89050870c4ba0184
+    size: 2302496
+  tinyPocketTTS-mmproj:
+    repo: ggml-org-dev/tinyPocketTTS-for-testing-gguf
+    revision: 8abe0e4eb1659892589aa6d9e3f7c8e3bbcd5092
+    file: mmproj-tinyPocketTTS-for-testing-Q8_0.gguf
+    sha256: 8c0843e5a6f3169c0344977b11551b6373edaf73cac5ef228164b245ee629981
+    size: 1731808
+
+  # Preset tinyopenjev: a native decision model for the System One endpoint.
+  tinyopenjev:
+    repo: ggml-org-dev/tinyopenjev-for-testing-gguf
+    revision: b08efb274d3eee26611ff3953cc71c47e922fcb0
+    file: tinyopenjev-for-testing-Q8_0.gguf
+    sha256: bb451e6faf46fea0b28dec91765a59d8392e40711ea5554f8e7d39b5e03b15a7
+    size: 45712544
+  tinyopenjev-mmproj:
+    repo: ggml-org-dev/tinyopenjev-for-testing-gguf
+    revision: b08efb274d3eee26611ff3953cc71c47e922fcb0
+    file: mmproj-tinyopenjev-for-testing-Q8_0.gguf
+    sha256: 5831d2b67fcf563ce6e6f80170847bffc0b361c2c3cc93ea6d700e3087a9f03a
+    size: 3209216
+
+  # Preset tinygemma3: a tiny vision model for image input in chat completions.
+  tinygemma3:
+    repo: ggml-org-dev/tinygemma3-GGUF
+    revision: c2b2bd4f9472312bc448f29abeeb3af76ec00df5
+    file: tinygemma3-Q8_0.gguf
+    sha256: 7566ae7219c93ea2ecc692a931ee122d30c55261d0e2c3347acb8b939d2e9abd
+    size: 47227552
+  tinygemma3-mmproj:
+    repo: ggml-org-dev/tinygemma3-GGUF
+    revision: c2b2bd4f9472312bc448f29abeeb3af76ec00df5
+    file: mmproj-tinygemma3.gguf
+    sha256: 93c2ba8c34574dd8f2dfda64931fc20943de2f941bfe03e6e9eca68951b80604
+    size: 1039072
+
+  # Preset tinylfm3omni: realtime conversation and transcription sessions.
+  tinyLFM3-Omni:
+    repo: ggml-org-dev/tinyLFM3-Omni-for-testing-gguf
+    revision: c35594d03f861e4b3fde97c28a609684e770565b
+    file: tinyLFM3-Omni-for-testing-Q2_K.gguf
+    sha256: c93c250c4a6a8da743328f8a503fa74d0b56f0efc103db08cb29aeae2514297c
+    size: 19980384
+  tinyLFM3-Omni-mmproj:
+    repo: ggml-org-dev/tinyLFM3-Omni-for-testing-gguf
+    revision: c35594d03f861e4b3fde97c28a609684e770565b
+    file: mmproj-tinyLFM3-Omni-for-testing-Q2_K.gguf
+    sha256: 8978a601f2b7c41a85dc16a4aff6d90cdc1ea01f957cb2ad33c7ad0505ac780b
+    size: 19250496
+
+  # Preset tinyvoxtralrt: realtime transcription with a streaming audio encoder.
+  tinyVoxtral-Realtime:
+    repo: ggml-org-dev/tinyVoxtral-Realtime-for-testing-gguf
+    revision: 2b4a4c3c39e7d9f35d5a9ad5bd1c9688b711f8fb
+    file: tinyVoxtral-Realtime-for-testing-Q8_0.gguf
+    sha256: 3c65b4a08dc58edfb32e7ea27c7329d05f93de17ce74fcaa936dba23697a3a63
+    size: 514176
+  tinyVoxtral-Realtime-mmproj:
+    repo: ggml-org-dev/tinyVoxtral-Realtime-for-testing-gguf
+    revision: 2b4a4c3c39e7d9f35d5a9ad5bd1c9688b711f8fb
+    file: mmproj-tinyVoxtral-Realtime-for-testing-Q8_0.gguf
+    sha256: c892782c6c9fae8bf32ce506b77eab3b908818d1cb910703b1fc4ea45bb6a2d8
+    size: 235328
