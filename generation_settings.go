@@ -34,11 +34,11 @@ type GenerationSettings struct {
 	RepeatPenalty       float64                     `json:"repeat_penalty"`
 	PresencePenalty     float64                     `json:"presence_penalty"`
 	FrequencyPenalty    float64                     `json:"frequency_penalty"`
-	DryMultiplier       float64                     `json:"dry_multiplier"`
-	DryBase             float64                     `json:"dry_base"`
-	DryAllowedLength    int                         `json:"dry_allowed_length"`
-	DryPenaltyLastN     int                         `json:"dry_penalty_last_n"`
-	DrySequenceBreakers []string                    `json:"dry_sequence_breakers,omitzero"`
+	DRYMultiplier       float64                     `json:"dry_multiplier"`
+	DRYBase             float64                     `json:"dry_base"`
+	DRYAllowedLength    int                         `json:"dry_allowed_length"`
+	DRYPenaltyLastN     int                         `json:"dry_penalty_last_n"`
+	DRYSequenceBreakers []string                    `json:"dry_sequence_breakers,omitzero"`
 	Mirostat            int                         `json:"mirostat"`
 	MirostatTau         float64                     `json:"mirostat_tau"`
 	MirostatEta         float64                     `json:"mirostat_eta"`

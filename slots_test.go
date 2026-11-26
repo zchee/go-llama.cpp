@@ -47,8 +47,8 @@ func TestSlotsDebugFixture(t *testing.T) {
 	if used.Params == nil {
 		t.Fatal("Params is nil")
 	}
-	if diff := gocmp.Diff([]string{"\n", ":", `"`, "*"}, used.Params.DrySequenceBreakers); diff != "" {
-		t.Errorf("DrySequenceBreakers (-want +got):\n%s", diff)
+	if diff := gocmp.Diff([]string{"\n", ":", `"`, "*"}, used.Params.DRYSequenceBreakers); diff != "" {
+		t.Errorf("DRYSequenceBreakers (-want +got):\n%s", diff)
 	}
 	if used.Params.Grammar == nil || used.Params.GrammarLazy == nil {
 		t.Errorf("expected full grammar params from slots debug response: %+v", used.Params)

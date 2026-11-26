@@ -100,16 +100,16 @@ type SamplingParams struct {
 	FrequencyPenalty *float64 `json:"frequency_penalty,omitzero"`
 	// PresencePenalty is the repeat alpha presence penalty; 0 disables it.
 	PresencePenalty *float64 `json:"presence_penalty,omitzero"`
-	// DryMultiplier is the DRY repetition penalty multiplier; 0 disables it.
-	DryMultiplier *float64 `json:"dry_multiplier,omitzero"`
-	// DryBase is the DRY repetition penalty base.
-	DryBase *float64 `json:"dry_base,omitzero"`
-	// DryAllowedLength is the repetition length that DRY does not penalize.
-	DryAllowedLength *int `json:"dry_allowed_length,omitzero"`
-	// DryPenaltyLastN is the number of tokens scanned for repetitions; 0 disables it and -1 uses the context.
-	DryPenaltyLastN *int `json:"dry_penalty_last_n,omitzero"`
-	// DrySequenceBreakers are the sequence breakers of DRY sampling.
-	DrySequenceBreakers []string `json:"dry_sequence_breakers,omitzero"`
+	// DRYMultiplier is the DRY repetition penalty multiplier; 0 disables it.
+	DRYMultiplier *float64 `json:"dry_multiplier,omitzero"`
+	// DRYBase is the DRY repetition penalty base.
+	DRYBase *float64 `json:"dry_base,omitzero"`
+	// DRYAllowedLength is the repetition length that DRY does not penalize.
+	DRYAllowedLength *int `json:"dry_allowed_length,omitzero"`
+	// DRYPenaltyLastN is the number of tokens scanned for repetitions; 0 disables it and -1 uses the context.
+	DRYPenaltyLastN *int `json:"dry_penalty_last_n,omitzero"`
+	// DRYSequenceBreakers are the sequence breakers of DRY sampling.
+	DRYSequenceBreakers []string `json:"dry_sequence_breakers,omitzero"`
 	// Mirostat selects Mirostat sampling: 0 disabled, 1 Mirostat, 2 Mirostat 2.0.
 	Mirostat *int `json:"mirostat,omitzero"`
 	// MirostatTau is the Mirostat target entropy.
