@@ -16,6 +16,7 @@ package integration
 
 import (
 	"errors"
+	"os"
 	"sync"
 	"testing"
 
@@ -75,7 +76,7 @@ func (p *serverPreset) server(t testing.TB) *harness.Server {
 	return s
 }
 
-// stopSharedServers stops every shared server.
+// stopSharedServers stops every shared server and removes any directories registered for shared presets.
 func stopSharedServers() error {
 	sharedMu.Lock()
 	defer sharedMu.Unlock()
@@ -86,5 +87,33 @@ func stopSharedServers() error {
 		}
 		delete(sharedServers, name)
 	}
-	return errors.Join(errs...)
+	return errors.Join(append(errs, removeSharedDirs()...)...)
+}
+
+var (
+	// sharedDirsMu is separate from sharedMu because (*serverPreset).server invokes options while holding sharedMu.
+	sharedDirsMu sync.Mutex
+	sharedDirs   []string
+)
+
+// registerSharedDir schedules dir for removal when stopSharedServers runs after all tests finish.
+func registerSharedDir(dir string) {
+	sharedDirsMu.Lock()
+	defer sharedDirsMu.Unlock()
+	sharedDirs = append(sharedDirs, dir)
+}
+
+// removeSharedDirs removes every registered shared preset directory and clears the registry.
+func removeSharedDirs() []error {
+	sharedDirsMu.Lock()
+	dirs := sharedDirs
+	sharedDirs = nil
+	sharedDirsMu.Unlock()
+	var errs []error
+	for _, dir := range dirs {
+		if err := os.RemoveAll(dir); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
 }

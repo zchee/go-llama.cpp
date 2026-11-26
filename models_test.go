@@ -248,6 +248,39 @@ func TestModelsRejectAmbiguousSidecar(t *testing.T) {
 	}
 }
 
+func TestModelsRejectEmptyDeleteName(t *testing.T) {
+	sent := false
+	c, err := New("http://localhost", WithHTTPClient(&http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		sent = true
+		return nil, fmt.Errorf("unexpected transport call")
+	})}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct {
+		model string
+		opts  []RequestOption
+		want  string
+	}{
+		"error: empty model name":       {model: "", want: "non-empty model name"},
+		"error: empty name and sidecar": {model: "", opts: []RequestOption{WithSidecar("")}, want: "non-empty model name"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			sent = false
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			_, err := c.DeleteModel(ctx, tt.model, tt.opts...)
+			if sent {
+				t.Fatal("DeleteModel sent an HTTP request for an empty model name")
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("DeleteModel error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func FuzzModelsStatus(f *testing.F) {
 	lists, err := filepath.Glob("testdata/models/list-*.resp.json")
 	if err != nil {

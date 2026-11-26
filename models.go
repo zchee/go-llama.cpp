@@ -198,15 +198,20 @@ func (c *Client) DownloadModel(ctx context.Context, req *DownloadModelRequest, o
 }
 
 // DeleteModel removes the named model from the router's cache, or one sidecar with WithSidecar.
-// It rejects an empty or repeated sidecar selector rather than risk deleting the whole model.
+// It rejects an empty model name, or an empty or repeated sidecar selector rather than risk deleting the whole model.
 func (c *Client) DeleteModel(ctx context.Context, model string, opts ...RequestOption) (*ModelActionResponse, error) {
+	if model == "" {
+		return nil, errors.New("llama: model deletion requires a non-empty model name")
+	}
 	if kinds, ok := newRequestConfig(opts).query["sidecar"]; ok && (len(kinds) != 1 || kinds[0] == "") {
 		return nil, errors.New("llama: model deletion requires a single non-empty sidecar when one is specified")
 	}
 	return Call[*ModelActionResponse](ctx, c, http.MethodDelete, "/models", nil, append(slices.Clip(opts), WithModelQuery(model))...)
 }
 
-// ModelEvents subscribes to model changes. Break the loop or cancel ctx to close the stream.
+// ModelEvents subscribes to model changes. Break the loop or cancel ctx to close the stream. The sequence also ends
+// without an error when the server closes the stream (for example on shutdown), because this event stream has no
+// terminating event, so a caller cannot tell a server shutdown from a normal end.
 func (c *Client) ModelEvents(ctx context.Context, opts ...RequestOption) iter.Seq2[*ModelEvent, error] {
 	return Stream[ModelEvent](ctx, c, http.MethodGet, "/models/sse", nil, opts...)
 }

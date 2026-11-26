@@ -43,16 +43,25 @@ var (
 	modelsDeletePreset   = modelsPreset("delete", true)
 )
 
-// Give each contract its own server: the cache and model directory belong to the subtest.
+// modelsOptions returns router-mode options whose model directory is dir.
+func modelsOptions(t testing.TB, dir string, online bool) harness.Options {
+	if !online {
+		if err := os.Symlink(harness.Model(t, "stories260K"), filepath.Join(dir, modelsLocalID+".gguf")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return harness.Options{ModelsDir: dir, Online: online, Args: []string{"--verbosity", "4", "--parallel", "1", "--ctx-size", "512", "--n-gpu-layers", "0"}}
+}
+
+// modelsPreset returns a shared router preset whose models directory outlives the subtest that starts it.
 func modelsPreset(name string, online bool) *serverPreset {
 	return &serverPreset{name: "models-" + name, options: func(t testing.TB) harness.Options {
-		dir := t.TempDir()
-		if !online {
-			if err := os.Symlink(harness.Model(t, "stories260K"), filepath.Join(dir, modelsLocalID+".gguf")); err != nil {
-				t.Fatal(err)
-			}
+		dir, err := os.MkdirTemp("", "go-llama-models-"+name+"-*")
+		if err != nil {
+			t.Fatal(err)
 		}
-		return harness.Options{ModelsDir: dir, Online: online, Args: []string{"--verbosity", "4", "--parallel", "1", "--ctx-size", "512", "--n-gpu-layers", "0"}}
+		registerSharedDir(dir)
+		return modelsOptions(t, dir, online)
 	}}
 }
 
@@ -154,8 +163,7 @@ func modelsCheckDeleted(path string) error {
 }
 
 func TestModelsRouterEventsAndErrors(t *testing.T) {
-	p := modelsPreset("events-and-errors", false)
-	srv := harness.StartT(t, p.options(t))
+	srv := harness.StartT(t, modelsOptions(t, t.TempDir(), false))
 	c, obs := srv.Client(t)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
@@ -212,8 +220,92 @@ func TestModelsRouterEventsAndErrors(t *testing.T) {
 				t.Errorf("error = %v, want HTTP 400", err)
 			}
 		}},
+		"error: empty model name on delete": {func(t *testing.T) {
+			dc, dobs := srv.Client(t)
+			_, err := dc.DeleteModel(ctx, "")
+			if err == nil || !strings.Contains(err.Error(), "non-empty model name") {
+				t.Errorf("error = %v, want client-side non-empty model name error", err)
+			}
+			if ex := dobs.Exchanges(); len(ex) != 0 {
+				t.Fatalf("empty model deletion sent %d HTTP request(s): %+v", len(ex), ex)
+			}
+		}},
 	}
 	for name, tt := range tests {
 		t.Run(name, tt.run)
+	}
+}
+
+func TestModelsSharedPresetDirectorySurvivesSubtest(t *testing.T) {
+	preset := modelsPreset("listing", false)
+	t.Run("success: start shared preset", func(t *testing.T) {
+		srv := preset.server(t)
+		dir := filepath.Join(filepath.Dir(srv.CacheDir()), "models-dir")
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("models directory missing right after start: %v (%v)", info, err)
+		}
+	})
+	t.Run("success: directory and model survive after starting subtest ends", func(t *testing.T) {
+		srv := preset.server(t)
+		dir := filepath.Join(filepath.Dir(srv.CacheDir()), "models-dir")
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("models directory disappeared while shared server is running: %v (%v)", info, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, modelsLocalID+".gguf")); err != nil {
+			t.Fatalf("model symlink disappeared while shared server is running: %v", err)
+		}
+		c, _ := srv.Client(t)
+		list, err := c.ListModels(t.Context(), llama.WithReload())
+		if err != nil {
+			t.Fatalf("reloading models on reused preset: %v", err)
+		}
+		if len(list.Data) != 1 || list.Data[0].ID != modelsLocalID {
+			t.Fatalf("reused preset lost model %q: %+v", modelsLocalID, list)
+		}
+	})
+}
+
+func TestModelsSharedPresetCleanup(t *testing.T) {
+	dir, err := os.MkdirTemp("", "go-llama-models-cleanup-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "marker"), []byte("x"), 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+		t.Fatal(err)
+	}
+
+	sharedMu.Lock()
+	savedServers := sharedServers
+	sharedServers = map[string]*harness.Server{}
+	sharedMu.Unlock()
+
+	sharedDirsMu.Lock()
+	savedDirs := sharedDirs
+	sharedDirs = nil
+	sharedDirsMu.Unlock()
+
+	t.Cleanup(func() {
+		sharedMu.Lock()
+		sharedServers = savedServers
+		sharedMu.Unlock()
+		sharedDirsMu.Lock()
+		sharedDirs = savedDirs
+		sharedDirsMu.Unlock()
+		_ = os.RemoveAll(dir)
+	})
+
+	registerSharedDir(dir)
+	if err := stopSharedServers(); err != nil {
+		t.Fatalf("stopSharedServers: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("registered preset directory %q still exists after stopSharedServers: %v", dir, err)
+	}
+	sharedDirsMu.Lock()
+	remaining := len(sharedDirs)
+	sharedDirsMu.Unlock()
+	if remaining != 0 {
+		t.Errorf("sharedDirs has %d entries after stopSharedServers, want 0", remaining)
 	}
 }
