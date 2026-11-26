@@ -27,80 +27,122 @@ import (
 
 // Slot reports the state of one inference slot. Task-specific members are absent until the slot has run a task.
 type Slot struct {
-	ID                     int                       `json:"id"`
-	NCtx                   int                       `json:"n_ctx"`
-	Speculative            bool                      `json:"speculative"`
-	IsProcessing           bool                      `json:"is_processing"`
-	IDTask                 *int                      `json:"id_task,omitzero"`
-	NPromptTokens          *int                      `json:"n_prompt_tokens,omitzero"`
-	NPromptTokensProcessed *int                      `json:"n_prompt_tokens_processed,omitzero"`
-	NPromptTokensCache     *int                      `json:"n_prompt_tokens_cache,omitzero"`
-	Params                 *GenerationSettings       `json:"params,omitzero"`
-	NextToken              []SlotNextToken           `json:"next_token,omitzero"`
-	Prompt                 *string                   `json:"prompt,omitzero"`
-	Generated              *string                   `json:"generated,omitzero"`
-	Extra                  map[string]jsontext.Value `json:",embed"`
+	// ID is the zero-based slot number used in save, restore, and erase requests.
+	ID int `json:"id"`
+	// NCtx is the context capacity of this slot, in tokens.
+	NCtx int `json:"n_ctx"`
+	// Speculative reports whether this slot can use speculative decoding.
+	Speculative bool `json:"speculative"`
+	// IsProcessing reports whether the slot currently has work rather than being idle.
+	IsProcessing bool `json:"is_processing"`
+	// IDTask identifies the current or most recent task; absent on a fresh slot.
+	IDTask *int `json:"id_task,omitzero"`
+	// NPromptTokens counts positions currently held in the slot's prompt cache; absent on a fresh slot.
+	NPromptTokens *int `json:"n_prompt_tokens,omitzero"`
+	// NPromptTokensProcessed counts input tokens evaluated for the task rather than reused; absent on a fresh slot.
+	NPromptTokensProcessed *int `json:"n_prompt_tokens_processed,omitzero"`
+	// NPromptTokensCache counts input tokens reused for the task; absent on a fresh slot.
+	NPromptTokensCache *int `json:"n_prompt_tokens_cache,omitzero"`
+	// Params reports the effective generation settings of the current or most recent task; absent on a fresh slot.
+	Params *GenerationSettings `json:"params,omitzero"`
+	// NextToken carries one generation state object for the current or most recent task; absent on a fresh slot.
+	NextToken []SlotNextToken `json:"next_token,omitzero"`
+	// Prompt is the detokenized input of the current or most recent task; omitted on a fresh slot.
+	Prompt *string `json:"prompt,omitzero"`
+	// Generated is the output text so far for the current or most recent task; omitted on a fresh slot.
+	Generated *string `json:"generated,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotNextToken describes token generation for a slot that has processed a task.
 type SlotNextToken struct {
-	HasNextToken bool                      `json:"has_next_token"`
-	HasNewLine   bool                      `json:"has_new_line"`
-	NRemain      int                       `json:"n_remain"`
-	NDecoded     int                       `json:"n_decoded"`
-	Extra        map[string]jsontext.Value `json:",embed"`
+	// HasNextToken reports whether generation can continue past the most recently produced token.
+	HasNextToken bool `json:"has_next_token"`
+	// HasNewLine reports whether a newline has been encountered during generation.
+	HasNewLine bool `json:"has_new_line"`
+	// NRemain is the remaining generation token budget, or -1 if unlimited.
+	NRemain int `json:"n_remain"`
+	// NDecoded counts tokens generated so far for the task.
+	NDecoded int `json:"n_decoded"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotFileRequest names a file in the server's slot save directory, not the client's filesystem.
 type SlotFileRequest struct {
-	Filename string                    `json:"filename"`
-	Model    string                    `json:"model,omitzero"`
-	Extra    map[string]jsontext.Value `json:",embed"`
+	// Filename is the required cache file name under the server's --slot-save-path directory.
+	Filename string `json:"filename"`
+	// Model selects the model that owns the slot when routing; not needed on a single-model server.
+	Model string `json:"model,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotEraseRequest optionally selects the model on a router; a single-model server needs no body.
 type SlotEraseRequest struct {
-	Model string                    `json:"model,omitzero"`
+	// Model identifies the model whose slot cache to clear when routing; not needed on a single-model server.
+	Model string `json:"model,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotSaveResponse reports how many cached tokens and bytes were written.
 type SlotSaveResponse struct {
-	IDSlot   int                       `json:"id_slot"`
-	Filename string                    `json:"filename"`
-	NSaved   int                       `json:"n_saved"`
-	NWritten int64                     `json:"n_written"`
-	Timings  SlotSaveTimings           `json:"timings"`
-	Extra    map[string]jsontext.Value `json:",embed"`
+	// IDSlot echoes the requested slot number, even when the server wraps it modulo the slot count.
+	IDSlot int `json:"id_slot"`
+	// Filename echoes the cache file name from the save request.
+	Filename string `json:"filename"`
+	// NSaved counts tokens serialized from the slot's cache.
+	NSaved int `json:"n_saved"`
+	// NWritten counts bytes written to the cache file.
+	NWritten int64 `json:"n_written"`
+	// Timings measures the duration of the server-side save.
+	Timings SlotSaveTimings `json:"timings"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotSaveTimings measures the time taken to save a slot, in milliseconds.
 type SlotSaveTimings struct {
-	SaveMS float64                   `json:"save_ms"`
-	Extra  map[string]jsontext.Value `json:",embed"`
+	// SaveMS is the elapsed time in milliseconds to write the cache on the server.
+	SaveMS float64 `json:"save_ms"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotRestoreResponse reports how many cached tokens and bytes were restored.
 type SlotRestoreResponse struct {
-	IDSlot    int                       `json:"id_slot"`
-	Filename  string                    `json:"filename"`
-	NRestored int                       `json:"n_restored"`
-	NRead     int64                     `json:"n_read"`
-	Timings   SlotRestoreTimings        `json:"timings"`
-	Extra     map[string]jsontext.Value `json:",embed"`
+	// IDSlot echoes the requested slot number, even when the server wraps it modulo the slot count.
+	IDSlot int `json:"id_slot"`
+	// Filename echoes the cache file name from the restore request.
+	Filename string `json:"filename"`
+	// NRestored counts tokens loaded into the slot's cache.
+	NRestored int `json:"n_restored"`
+	// NRead counts bytes read from the cache file.
+	NRead int64 `json:"n_read"`
+	// Timings measures the duration of the server-side restore.
+	Timings SlotRestoreTimings `json:"timings"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotRestoreTimings measures the time taken to restore a slot, in milliseconds.
 type SlotRestoreTimings struct {
-	RestoreMS float64                   `json:"restore_ms"`
-	Extra     map[string]jsontext.Value `json:",embed"`
+	// RestoreMS is the elapsed time in milliseconds to load the saved cache on the server.
+	RestoreMS float64 `json:"restore_ms"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotEraseResponse reports how many tokens the server erased from the slot.
 type SlotEraseResponse struct {
-	IDSlot  int                       `json:"id_slot"`
-	NErased int                       `json:"n_erased"`
-	Extra   map[string]jsontext.Value `json:",embed"`
+	// IDSlot echoes the requested slot number, even when the server wraps it modulo the slot count.
+	IDSlot int `json:"id_slot"`
+	// NErased counts the cached tokens removed from the slot.
+	NErased int `json:"n_erased"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // WithFailOnNoSlot asks Slots to return 503 when no slot is free.

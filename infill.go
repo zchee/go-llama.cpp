@@ -30,20 +30,30 @@ import (
 // of strings and token ids. The server appends Prompt to the input prefix, before the FIM middle token.
 type InfillRequest struct {
 	SamplingParams
-	InputPrefix InfillInput               `json:"input_prefix"`
-	InputSuffix InfillInput               `json:"input_suffix"`
-	InputExtra  []InfillContext           `json:"input_extra,omitzero"`
-	Prompt      *string                   `json:"prompt,omitzero"`
-	Model       string                    `json:"model,omitzero"`
-	NCmpl       *int                      `json:"n_cmpl,omitzero"`
-	Stream      *bool                     `json:"stream,omitzero"`
-	Extra       map[string]jsontext.Value `json:",embed"`
+	// InputPrefix is the required text or token sequence before the insertion point.
+	InputPrefix InfillInput `json:"input_prefix"`
+	// InputSuffix is the required text or token sequence after the insertion point.
+	InputSuffix InfillInput `json:"input_suffix"`
+	// InputExtra supplies optional file snippets before the fill-in-the-middle sequence.
+	InputExtra []InfillContext `json:"input_extra,omitzero"`
+	// Prompt appends optional text to InputPrefix, not after the middle marker.
+	Prompt *string `json:"prompt,omitzero"`
+	// Model selects the model to route to; required on a router and optional on a single-model server.
+	Model string `json:"model,omitzero"`
+	// NCmpl is the number of insertions to generate, from 1 to the server's parallel slot count; defaults to 1.
+	NCmpl *int `json:"n_cmpl,omitzero"`
+	// Stream is set by the typed client methods to choose server-sent events or buffered JSON.
+	Stream *bool `json:"stream,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // InfillInput is a prefix or suffix. Unlike a completion prompt, a flat array of strings is a single input,
 // not a batch. Set Text for a string, or Parts for an array of TextPart and TokenPart values.
 type InfillInput struct {
-	Text  string
+	// Text is sent as a single JSON string when Parts is nil.
+	Text string
+	// Parts is sent as one sequence of text fragments and token IDs; leave Text empty when using it.
 	Parts []PromptPart
 }
 
@@ -112,9 +122,12 @@ func (in *InfillInput) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // InfillContext contributes a file's text as additional context for infilling.
 type InfillContext struct {
-	Text     string                    `json:"text"`
-	Filename *string                   `json:"filename,omitzero"`
-	Extra    map[string]jsontext.Value `json:",embed"`
+	// Text is the required snippet to include in the model's fill-in-the-middle context.
+	Text string `json:"text"`
+	// Filename labels the snippet when the model supports file separators; defaults to "tmp".
+	Filename *string `json:"filename,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // Infill generates one fill-in-the-middle result. The model must support infill tokens.

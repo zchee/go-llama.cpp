@@ -30,20 +30,20 @@ import (
 // Message is one message of a chat conversation, in requests and in responses. An empty Role, ContentPart.Type or
 // ImageURL.URL is encoded as an absent member, which the server reads the same way.
 type Message struct {
-	// Role is "system", "developer", "user", "assistant" or "tool".
+	// Role is required in a request message: "system", "developer", "user", "assistant" or "tool".
 	Role string `json:"role,omitzero"`
-	// Content is the message content. An assistant message that only calls tools may leave it unset.
+	// Content supplies text, typed parts, or null; only an assistant message that calls tools may omit it.
 	Content MessageContent `json:"content,omitzero"`
-	// Name names the author of the message.
+	// Name optionally identifies the function that produced a tool message.
 	Name *string `json:"name,omitzero"`
-	// ReasoningContent is the reasoning of an assistant message, which llama.cpp returns separately from the
-	// content for reasoning models.
+	// ReasoningContent holds reasoning separate from the answer when the model and reasoning format report it.
 	ReasoningContent *string `json:"reasoning_content,omitzero"`
-	// ToolCalls are the tool calls of an assistant message.
+	// ToolCalls lists functions called by the assistant; omitted when no calls are present.
 	ToolCalls []ToolCall `json:"tool_calls,omitzero"`
 	// ToolCallID is the id of the tool call a "tool" message answers.
 	ToolCallID *string `json:"tool_call_id,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -141,19 +141,21 @@ func (m *MessageContent) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // ContentPart is one part of a MessageContent.
 type ContentPart struct {
-	// Type is "text", "image_url", "input_audio", "input_video" or "video_url".
+	// Type selects the required payload member: "text", "image_url", "input_audio", "input_video", or "video_url";
+	// for "tool_reference", supply the tool name in Extra["name"].
 	Type string `json:"type,omitzero"`
-	// Text is the text of a "text" part.
+	// Text supplies the required string when Type is "text".
 	Text *string `json:"text,omitzero"`
-	// ImageURL is the image of an "image_url" part.
+	// ImageURL supplies the source image when Type is "image_url"; the model must accept images.
 	ImageURL *ImageURL `json:"image_url,omitzero"`
-	// InputAudio is the audio of an "input_audio" part.
+	// InputAudio supplies audio bytes or a URL when Type is "input_audio"; the model must accept audio.
 	InputAudio *MediaInput `json:"input_audio,omitzero"`
-	// InputVideo is the video of an "input_video" part.
+	// InputVideo supplies video bytes or a URL when Type is "input_video"; the model must accept video.
 	InputVideo *MediaInput `json:"input_video,omitzero"`
-	// VideoURL is the video of a "video_url" part.
+	// VideoURL supplies the same media payload as InputVideo when Type is "video_url".
 	VideoURL *MediaInput `json:"video_url,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -173,6 +175,7 @@ type ImageURL struct {
 	// Detail is the OpenAI detail level; llama.cpp ignores it.
 	Detail *string `json:"detail,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -186,6 +189,7 @@ type MediaInput struct {
 	// Format is the media format, such as "wav"; llama.cpp does not need it.
 	Format *string `json:"format,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -198,18 +202,20 @@ type ToolCall struct {
 	ID *string `json:"id,omitzero"`
 	// Type is "function".
 	Type *string `json:"type,omitzero"`
-	// Function is the called function.
+	// Function carries the name and argument text; a streamed delta may carry only the changed members.
 	Function *FunctionCall `json:"function,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // FunctionCall is the function of a ToolCall.
 type FunctionCall struct {
-	// Name is the function name.
+	// Name identifies the declared function; it may be omitted from a delta that only adds arguments.
 	Name *string `json:"name,omitzero"`
 	// Arguments is the JSON text of the arguments, or the next piece of it in a streamed delta.
 	Arguments *string `json:"arguments,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }

@@ -26,7 +26,7 @@ import (
 
 // TokenizeRequest is the body sent to POST /tokenize.
 type TokenizeRequest struct {
-	// Content is a string or a single sequence of strings and token IDs.
+	// Content is a string or a single sequence of strings and token IDs; omission returns an empty token list.
 	Content TokenizeContent `json:"content,omitzero"`
 	// AddSpecial inserts model-specific special tokens; the server defaults to false.
 	// For array content, the first element must be text for this to take effect.
@@ -36,7 +36,7 @@ type TokenizeRequest struct {
 	// WithPieces returns each token's spelling as well as its ID; the server defaults to false.
 	WithPieces *bool `json:"with_pieces,omitzero"`
 
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -145,7 +145,7 @@ type TokenizeResponse struct {
 	// Tokens is the model's token sequence for the request content.
 	Tokens []TokenizeToken `json:"tokens"`
 
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -153,10 +153,10 @@ type TokenizeResponse struct {
 type TokenizeToken struct {
 	// ID is the token's position in the model's vocabulary.
 	ID Token `json:"id"`
-	// Piece is the token's spelling, present only when the request set with_pieces.
+	// Piece is the token's spelling as text or raw bytes; nil unless the request set WithPieces.
 	Piece *TokenPiece `json:"piece"`
 
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

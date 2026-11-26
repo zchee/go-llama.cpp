@@ -25,49 +25,51 @@ import (
 // It parses ReasoningBudgetTokens, ThinkingBudgetTokens, ReasoningBudgetMessage and ReasoningControl
 // for generation, but none of them affects the rendered prompt.
 type ApplyTemplateRequest struct {
-	// Messages are the conversation turns, in order.
+	// Messages supplies the required conversation array in turn order.
 	Messages []Message `json:"messages,omitzero"`
-	// AddGenerationPrompt appends the start of an assistant turn; the server defaults to true.
+	// AddGenerationPrompt appends the start of an assistant turn; defaults to true unless the server prefills it.
 	AddGenerationPrompt *bool `json:"add_generation_prompt,omitzero"`
-	// ContinueFinalMessage continues the final turn instead of starting a new one.
+	// ContinueFinalMessage selects which final assistant field to continue; an explicit selection requires
+	// AddGenerationPrompt to be false.
 	ContinueFinalMessage Continuation `json:"continue_final_message,omitzero"`
-	// ChatTemplateKwargs overrides the template variables configured on the server.
+	// ChatTemplateKwargs overrides individual server-configured template variables; omission keeps those defaults.
 	ChatTemplateKwargs map[string]jsontext.Value `json:"chat_template_kwargs,omitzero"`
-	// Tools contains OpenAI-format tool declarations; nonempty tools require Jinja.
+	// Tools supplies optional OpenAI-format tool declarations; a nonempty list requires Jinja.
 	Tools []Tool `json:"tools,omitzero"`
-	// ToolChoice is a mode, a named function, or a list of allowed tools.
+	// ToolChoice is a mode, a named function, or a list of allowed tools; omission defaults to "auto".
 	ToolChoice ToolChoice `json:"tool_choice,omitzero"`
-	// ParallelToolCalls overrides the template's default for parallel tool calls.
+	// ParallelToolCalls overrides the active template's capability-based default for parallel calls.
 	ParallelToolCalls *bool `json:"parallel_tool_calls,omitzero"`
-	// ResponseFormat is the OpenAI-format object describing the requested output format.
+	// ResponseFormat supplies OpenAI-compatible format constraints to the chat parser; optional.
 	ResponseFormat *ResponseFormat `json:"response_format,omitzero"`
 	// JSONSchema constrains the response format and cannot be combined with Grammar.
 	JSONSchema jsontext.Value `json:"json_schema,omitzero"`
 	// Grammar constrains the response via GBNF and cannot be combined with JSONSchema or active tools.
 	Grammar *string `json:"grammar,omitzero"`
-	// ReasoningFormat overrides the server's reasoning format.
+	// ReasoningFormat overrides the server's reasoning mode for rendering the conversation.
 	ReasoningFormat *string `json:"reasoning_format,omitzero"`
-	// ReasoningEffort is a model-specific reasoning level, or "none" to disable reasoning.
+	// ReasoningEffort selects a template-specific level, or "none" to disable reasoning; defaults to no override.
 	ReasoningEffort *string `json:"reasoning_effort,omitzero"`
-	// Echo asks the chat parser to include the prompt when starting its session.
+	// Echo changes how the parser handles continued assistant content; defaults to false.
 	Echo *bool `json:"echo,omitzero"`
-	// Stop is one stop string or an array of stop strings. No generation runs here.
+	// Stop supplies one or more stop strings to the parser without truncating the rendered prompt.
 	Stop StringOrSlice `json:"stop,omitzero"`
-	// Stream participates in the chat parser's validation; it does not stream the prompt response.
+	// Stream participates in chat parser validation (default false); it does not stream the prompt response.
 	Stream *bool `json:"stream,omitzero"`
-	// Logprobs enables TopLogprobs in the chat parser; it produces no probabilities here.
+	// Logprobs enables parsing of TopLogprobs (default false); it produces no probabilities here.
 	Logprobs *bool `json:"logprobs,omitzero"`
-	// TopLogprobs requires Logprobs to be true.
+	// TopLogprobs is the candidate count for the parsed request; requires Logprobs and defaults to 20 when enabled.
 	TopLogprobs *int `json:"top_logprobs,omitzero"`
-	// ReasoningBudgetTokens limits reasoning tokens in the parsed chat options.
+	// ReasoningBudgetTokens limits reasoning tokens in the parsed chat options; -1 uses the server's budget.
 	ReasoningBudgetTokens *int `json:"reasoning_budget_tokens,omitzero"`
 	// ThinkingBudgetTokens is an alias used when ReasoningBudgetTokens is omitted.
 	ThinkingBudgetTokens *int `json:"thinking_budget_tokens,omitzero"`
-	// ReasoningBudgetMessage is the message the chat parser assigns to the end of a reasoning budget.
+	// ReasoningBudgetMessage sets the parsed text for the end of a reasoning budget; nil uses the server's text.
 	ReasoningBudgetMessage *string `json:"reasoning_budget_message,omitzero"`
-	// ReasoningControl enables external control in the parsed chat options.
+	// ReasoningControl enables external control in the parsed chat options; defaults to false.
 	ReasoningControl *bool `json:"reasoning_control,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -76,6 +78,7 @@ type ApplyTemplateResponse struct {
 	// Prompt is the rendered conversation, without running inference.
 	Prompt string `json:"prompt"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

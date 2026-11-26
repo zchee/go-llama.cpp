@@ -25,27 +25,29 @@ import (
 type Tool struct {
 	// Type is "function".
 	Type string `json:"type"`
-	// Function describes the function.
+	// Function is the required declaration of the callable name and argument schema.
 	Function *FunctionDefinition `json:"function,omitzero"`
-	// DeferLoading marks the tool for deferred loading.
+	// DeferLoading requests deferred loading; defaults to false and can be overridden by Function.DeferLoading.
 	DeferLoading *bool `json:"defer_loading,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // FunctionDefinition describes a function tool.
 type FunctionDefinition struct {
-	// Name is the function name.
+	// Name is the required callable name used to match tool choices and model-generated calls.
 	Name string `json:"name"`
-	// Description tells the model what the function does.
+	// Description tells the model what the function does; the server uses an empty string if omitted.
 	Description *string `json:"description,omitzero"`
-	// Parameters is the JSON schema of the arguments; SchemaFor builds one from a Go type.
+	// Parameters is the argument schema, defaulting to {}; SchemaFor builds one from a Go type.
 	Parameters jsontext.Value `json:"parameters,omitzero"`
 	// Strict asks for arguments that match the schema exactly; llama.cpp v1.1.0 accepts but ignores it.
 	Strict *bool `json:"strict,omitzero"`
 	// DeferLoading overrides the tool-level setting when present, including when false.
 	DeferLoading *bool `json:"defer_loading,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -67,14 +69,16 @@ type NamedToolChoice struct {
 	// Function names the function to call.
 	Function FunctionName `json:"function"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // FunctionName names the function of a NamedToolChoice.
 type FunctionName struct {
-	// Name is the function name.
+	// Name must match exactly one declared tool when used to force a function call.
 	Name string `json:"name"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -85,6 +89,7 @@ type AllowedToolChoice struct {
 	// AllowedTools holds the selection mode and function references.
 	AllowedTools *AllowedTools `json:"allowed_tools,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -95,6 +100,7 @@ type AllowedTools struct {
 	// Tools names the allowed functions. The server requires a nonempty list in "required" mode.
 	Tools []NamedToolChoice `json:"tools,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -207,19 +213,21 @@ type ResponseFormat struct {
 	// Schema is a schema given directly, a llama.cpp extension.
 	Schema jsontext.Value `json:"schema,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // JSONSchemaFormat is the schema of a "json_schema" ResponseFormat.
 type JSONSchemaFormat struct {
-	// Name names the schema.
+	// Name labels the schema for OpenAI compatibility; llama.cpp does not use it to build the grammar.
 	Name string `json:"name,omitzero"`
-	// Description describes the schema.
+	// Description is optional schema metadata; llama.cpp does not pass it to the grammar converter.
 	Description *string `json:"description,omitzero"`
-	// Schema is the JSON schema; SchemaFor builds one from a Go type.
+	// Schema becomes a GBNF grammar; omission permits any JSON object, and SchemaFor builds one from a Go type.
 	Schema jsontext.Value `json:"schema,omitzero"`
-	// Strict asks for output that matches the schema exactly.
+	// Strict is an OpenAI compatibility flag; llama.cpp applies its schema-to-grammar conversion regardless.
 	Strict *bool `json:"strict,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }

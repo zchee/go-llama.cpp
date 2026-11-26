@@ -40,129 +40,133 @@ type Token int32
 // request object. It has no Extra field of its own because the request that embeds it collects unknown members.
 // A nil pointer leaves the server default in place; new(expr) sets a value, including zero.
 type SamplingParams struct {
-	// NPredict is the maximum number of tokens to predict; -1 means no limit and 0 evaluates the prompt only.
+	// NPredict caps generation in tokens; -1 is unlimited (the startup default) and 0 only evaluates the prompt.
 	NPredict *int `json:"n_predict,omitzero"`
-	// NKeep is the number of prompt tokens kept when the context is shifted; -1 keeps all.
+	// NKeep counts initial prompt tokens to retain on a context shift; 0 is the startup default and -1 keeps all.
 	NKeep *int `json:"n_keep,omitzero"`
-	// NDiscard is the number of tokens after NKeep that a context shift may discard; 0 means half the context.
+	// NDiscard counts tokens to drop after NKeep on a context shift; 0 or omission drops half the remaining tokens.
 	NDiscard *int `json:"n_discard,omitzero"`
-	// NIndent is the minimum line indentation of the generated text, in whitespace characters.
+	// NIndent is the minimum generated line indentation in whitespace characters; defaults to 0.
 	NIndent *int `json:"n_indent,omitzero"`
-	// NCacheReuse is the minimum chunk size to reuse from the cache through KV shifting.
+	// NCacheReuse is the minimum reusable chunk size in tokens for KV shifting; the startup default 0 disables it.
 	NCacheReuse *int `json:"n_cache_reuse,omitzero"`
-	// TMaxPredictMS limits the prediction phase, in milliseconds, once a newline has been generated.
+	// TMaxPredictMS caps elapsed milliseconds since the first generated token, but only after a newline appears;
+	// the default 0 disables it.
 	TMaxPredictMS *int `json:"t_max_predict_ms,omitzero"`
-	// IDSlot assigns the request to a slot; -1 lets the server choose.
+	// IDSlot assigns the task to a specific slot; -1 or omission lets the server choose.
 	IDSlot *int `json:"id_slot,omitzero"`
-	// CachePrompt reuses the KV cache of a previous request with the same prefix.
+	// CachePrompt reuses a matching prompt prefix from the cache when possible; enabled by default at startup.
 	CachePrompt *bool `json:"cache_prompt,omitzero"`
-	// ReturnTokens includes the generated token ids in the response.
+	// ReturnTokens adds token IDs to buffered results; defaults to false and is automatic in streams.
 	ReturnTokens *bool `json:"return_tokens,omitzero"`
-	// ReturnProgress emits prompt processing progress events while streaming.
+	// ReturnProgress emits prompt processing progress events while streaming; defaults to false.
 	ReturnProgress *bool `json:"return_progress,omitzero"`
-	// TimingsPerToken includes timings in every streamed chunk.
+	// TimingsPerToken includes timings in partial token events as well as the final result; defaults to false.
 	TimingsPerToken *bool `json:"timings_per_token,omitzero"`
-	// PostSamplingProbs reports the probabilities of the top NProbs tokens after the sampler chain.
+	// PostSamplingProbs reports probabilities after the sampler chain rather than log probabilities; default false.
 	PostSamplingProbs *bool `json:"post_sampling_probs,omitzero"`
-	// ResponseFields restricts the response to the listed fields. "a/b" selects the member b nested in a, and the
-	// response carries it at the top level under the literal name "a/b".
+	// ResponseFields restricts the final native result to the listed fields, with no projection by default;
+	// "a/b" selects a nested member and returns it under the literal top-level key "a/b".
 	ResponseFields []string `json:"response_fields,omitzero"`
-	// SSEPingInterval is the interval in seconds between keep-alive comments of a silent stream; -1 disables them.
+	// SSEPingInterval sets seconds between keep-alive comments in a silent stream; -1 disables them,
+	// and nil uses the server's interval.
 	SSEPingInterval *int `json:"sse_ping_interval,omitzero"`
-	// Verbose includes the __verbose debug member in the response.
+	// Verbose requests the __verbose debug member in compatible responses; nil uses the server's verbosity setting.
 	Verbose *bool `json:"verbose,omitzero"`
 
-	// Temperature adjusts the randomness of the output; 0 selects greedy sampling.
+	// Temperature scales logits before sampling; 0 selects greedy decoding and the startup default is 0.8.
 	Temperature *float64 `json:"temperature,omitzero"`
-	// DynatempRange widens the temperature to [Temperature-range, Temperature+range].
+	// DynatempRange bounds temperature adjustment to Temperature ± this amount; the startup default 0 disables it.
 	DynatempRange *float64 `json:"dynatemp_range,omitzero"`
-	// DynatempExponent maps entropy to temperature.
+	// DynatempExponent controls how entropy maps to dynamic temperature; the startup default is 1.
 	DynatempExponent *float64 `json:"dynatemp_exponent,omitzero"`
-	// TopK keeps the K most probable tokens; 0 disables it.
+	// TopK keeps the K most probable tokens; 0 disables it and the startup default is 40.
 	TopK *int `json:"top_k,omitzero"`
-	// TopP keeps tokens up to the cumulative probability P; 1 disables it.
+	// TopP keeps tokens up to a cumulative probability in [0, 1]; 1 disables it and the startup default is 0.95.
 	TopP *float64 `json:"top_p,omitzero"`
-	// MinP drops tokens less probable than MinP times the most probable one; 0 disables it.
+	// MinP drops tokens below this fraction of the top probability; defaults to 0.05 at startup (0 disables it).
 	MinP *float64 `json:"min_p,omitzero"`
-	// TopNSigma keeps tokens within N standard deviations of the top logit; negative disables it.
+	// TopNSigma cuts off logits this many standard deviations below the top logit; the default -1 disables it.
 	TopNSigma *float64 `json:"top_n_sigma,omitzero"`
-	// XTCProbability is the chance of token removal by the XTC sampler; 0 disables it.
+	// XTCProbability is the chance that XTC removes high-probability candidates; the startup default 0 disables it.
 	XTCProbability *float64 `json:"xtc_probability,omitzero"`
-	// XTCThreshold is the minimum probability of tokens the XTC sampler removes; above 0.5 disables it.
+	// XTCThreshold is the minimum probability for XTC removal; above 0.5 disables it and the default is 0.1.
 	XTCThreshold *float64 `json:"xtc_threshold,omitzero"`
-	// TypicalP enables locally typical sampling; 1 disables it.
+	// TypicalP is the locally typical sampling cutoff; the startup default 1 disables it.
 	TypicalP *float64 `json:"typical_p,omitzero"`
-	// RepeatLastN is the number of last tokens considered for the repetition penalty; 0 disables it.
+	// RepeatLastN is the recent-token window for repetition penalties; 0 disables it and the startup default is 64.
 	RepeatLastN *int `json:"repeat_last_n,omitzero"`
-	// RepeatPenalty penalizes repeated token sequences; 1 disables it.
+	// RepeatPenalty downweights previously seen tokens; the startup default 1 disables it.
 	RepeatPenalty *float64 `json:"repeat_penalty,omitzero"`
-	// FrequencyPenalty is the repeat alpha frequency penalty; 0 disables it.
+	// FrequencyPenalty is subtracted from a token's logit for each prior occurrence in the penalty window;
+	// the startup default 0 disables it.
 	FrequencyPenalty *float64 `json:"frequency_penalty,omitzero"`
-	// PresencePenalty is the repeat alpha presence penalty; 0 disables it.
+	// PresencePenalty subtracts this amount from each previously seen token's logit; the startup default is 0.
 	PresencePenalty *float64 `json:"presence_penalty,omitzero"`
-	// DRYMultiplier is the DRY repetition penalty multiplier; 0 disables it.
+	// DRYMultiplier scales the penalty for extending a repeated sequence; the startup default 0 disables DRY.
 	DRYMultiplier *float64 `json:"dry_multiplier,omitzero"`
-	// DRYBase is the DRY repetition penalty base.
+	// DRYBase is the exponential base for the DRY penalty; values below 1 use the server setting (1.75 at startup).
 	DRYBase *float64 `json:"dry_base,omitzero"`
-	// DRYAllowedLength is the repetition length that DRY does not penalize.
+	// DRYAllowedLength is the repeated sequence length in tokens that goes unpenalized; the startup default is 2.
 	DRYAllowedLength *int `json:"dry_allowed_length,omitzero"`
-	// DRYPenaltyLastN is the number of tokens scanned for repetitions; 0 disables it and -1 uses the context.
+	// DRYPenaltyLastN is the recent-token window scanned for repeats; 0 disables it and the startup default is 64.
 	DRYPenaltyLastN *int `json:"dry_penalty_last_n,omitzero"`
-	// DRYSequenceBreakers are the sequence breakers of DRY sampling.
+	// DRYSequenceBreakers supplies up to 64 distinct strings across which DRY does not count repeats;
+	// the startup defaults are newline, colon, double quote, and asterisk.
 	DRYSequenceBreakers []string `json:"dry_sequence_breakers,omitzero"`
-	// Mirostat selects Mirostat sampling: 0 disabled, 1 Mirostat, 2 Mirostat 2.0.
+	// Mirostat selects 0 for disabled (the startup default), 1 for Mirostat, or 2 for Mirostat 2.0.
 	Mirostat *int `json:"mirostat,omitzero"`
-	// MirostatTau is the Mirostat target entropy.
+	// MirostatTau is Mirostat's target token surprise in bits; the startup default is 5.
 	MirostatTau *float64 `json:"mirostat_tau,omitzero"`
-	// MirostatEta is the Mirostat learning rate.
+	// MirostatEta controls how quickly Mirostat adapts to its target; the startup default is 0.1.
 	MirostatEta *float64 `json:"mirostat_eta,omitzero"`
-	// AdaptiveTarget is the target entropy of adaptive sampling; negative disables it.
+	// AdaptiveTarget sets the adaptive-p probability target in [0, 1]; the startup default -1 disables it.
 	AdaptiveTarget *float64 `json:"adaptive_target,omitzero"`
-	// AdaptiveDecay is the EMA decay of adaptive sampling.
+	// AdaptiveDecay controls how much adaptive-p weighs past tokens, in [0, 0.99]; the startup default is 0.9.
 	AdaptiveDecay *float64 `json:"adaptive_decay,omitzero"`
-	// Seed is the RNG seed; -1 picks a random one.
+	// Seed sets the random number generator seed; the startup default -1 picks a random seed.
 	Seed *int64 `json:"seed,omitzero"`
-	// NProbs reports the probabilities of the top N tokens of each generated token.
+	// NProbs caps candidate probabilities per generated token; the startup default 0 disables reporting.
 	NProbs *int `json:"n_probs,omitzero"`
-	// MinKeep makes the samplers return at least N tokens.
+	// MinKeep sets the minimum candidate count for filtering samplers; the startup default 0 sets no minimum.
 	MinKeep *int `json:"min_keep,omitzero"`
-	// BackendSampling samples on the backend instead of in llama.cpp.
+	// BackendSampling requests sampling on the model backend where supported; disabled by default at startup.
 	BackendSampling *bool `json:"backend_sampling,omitzero"`
-	// Samplers is the order of the sampler chain: an array of sampler names such as
-	// StringSlice("top_k", "top_p", "temperature"), or a string of sampler characters such as StringValue("kpt").
+	// Samplers overrides the server's default chain with sampler names such as StringSlice("top_k", "top_p")
+	// or a compact string such as StringValue("kpt").
 	Samplers StringOrSlice `json:"samplers,omitzero"`
-	// IgnoreEOS keeps generating after the end-of-sequence token.
+	// IgnoreEOS lets generation continue past an end-of-sequence token; disabled by default at startup.
 	IgnoreEOS *bool `json:"ignore_eos,omitzero"`
-	// LogitBias changes the likelihood of tokens.
+	// LogitBias adjusts or bans token candidates before sampling; omission keeps the configured token biases.
 	LogitBias LogitBias `json:"logit_bias,omitzero"`
-	// Stop lists strings that end generation; they are not included in the output.
+	// Stop lists strings that stop generation without appearing in output; omitted, it uses the server's list.
 	Stop StringOrSlice `json:"stop,omitzero"`
 
-	// Grammar is a GBNF grammar constraining the output.
+	// Grammar constrains output with GBNF; nil keeps the server's grammar unless JSONSchema is set.
 	Grammar *string `json:"grammar,omitzero"`
-	// JSONSchema constrains the output when Grammar is absent; the server ignores it when Grammar is set.
+	// JSONSchema is converted to a grammar unless Grammar is set; omission skips the conversion.
 	JSONSchema jsontext.Value `json:"json_schema,omitzero"`
-	// GrammarLazy applies the grammar only once a trigger is generated.
+	// GrammarLazy delays grammar enforcement until a trigger matches; disabled by default at startup.
 	GrammarLazy *bool `json:"grammar_lazy,omitzero"`
-	// GrammarTriggers lists the words or patterns that activate a lazy grammar, as sent to the server.
+	// GrammarTriggers supplies words, tokens, or patterns that activate a lazy grammar; omission adds none.
 	GrammarTriggers jsontext.Value `json:"grammar_triggers,omitzero"`
-	// PreservedTokens lists token strings that must not be split.
+	// PreservedTokens supplies token strings that must not be split; omission adds none.
 	PreservedTokens []string `json:"preserved_tokens,omitzero"`
-	// LoRA sets the scale of LoRA adapters for this request; adapters not listed get scale 0.
+	// LoRA overrides the server's adapter scales; with a nonempty override, unlisted adapters receive scale 0.
 	LoRA []LoRAWeight `json:"lora,omitzero"`
 
-	// ReasoningFormat selects how reasoning output is parsed, for example "none", "deepseek" or "auto".
+	// ReasoningFormat selects how to parse reasoning, such as "none" or "deepseek"; nil uses the server setting.
 	ReasoningFormat *string `json:"reasoning_format,omitzero"`
-	// ReasoningControl lets a running request be told to end its reasoning.
+	// ReasoningControl lets a running request be told to end reasoning even without a token budget.
 	ReasoningControl *bool `json:"reasoning_control,omitzero"`
-	// ReasoningBudgetTokens is the reasoning token budget; -1 disables it.
+	// ReasoningBudgetTokens caps the number of reasoning tokens; the startup default -1 disables the cap.
 	ReasoningBudgetTokens *int `json:"reasoning_budget_tokens,omitzero"`
-	// ReasoningBudgetStartTag marks the start of the budgeted reasoning section.
+	// ReasoningBudgetStartTag marks where counting reasoning tokens starts; nil leaves the configured tag in place.
 	ReasoningBudgetStartTag *string `json:"reasoning_budget_start_tag,omitzero"`
-	// ReasoningBudgetEndTags mark the end of the budgeted reasoning section; the first is forced when the budget
-	// runs out.
+	// ReasoningBudgetEndTags supplies end markers, the first of which is forced when the budget expires;
+	// omission leaves the configured markers in place.
 	ReasoningBudgetEndTags []string `json:"reasoning_budget_end_tags,omitzero"`
-	// ReasoningBudgetMessage is prepended to the forced end tag.
+	// ReasoningBudgetMessage supplies optional text to emit before the forced end marker.
 	ReasoningBudgetMessage *string `json:"reasoning_budget_message,omitzero"`
 }
 
@@ -173,6 +177,7 @@ type LoRAWeight struct {
 	// Scale is the adapter scale; 0 disables it.
 	Scale float64 `json:"scale"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -201,6 +206,7 @@ type Timings struct {
 	// DraftNAccepted is the number of accepted draft tokens, present with speculative decoding.
 	DraftNAccepted *int `json:"draft_n_accepted,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -215,6 +221,7 @@ type Usage struct {
 	// PromptTokensDetails breaks down the prompt tokens.
 	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -223,6 +230,7 @@ type PromptTokensDetails struct {
 	// CachedTokens is the number of prompt tokens reused from the cache.
 	CachedTokens int `json:"cached_tokens"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -237,6 +245,7 @@ type PromptProgress struct {
 	// TimeMS is the elapsed processing time in milliseconds.
 	TimeMS float64 `json:"time_ms"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -260,6 +269,7 @@ type TokenProb struct {
 	// TopProbs are the most likely tokens with their probabilities after the sampler chain.
 	TopProbs []TopTokenProb `json:"top_probs,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -276,6 +286,7 @@ type TopTokenProb struct {
 	// Prob is the probability of the token after the sampler chain.
 	Prob *float64 `json:"prob,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -318,6 +329,7 @@ type PromptObject struct {
 	// MultimodalData are the media files (images, audio), sent base64-encoded.
 	MultimodalData [][]byte `json:"multimodal_data,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

@@ -23,10 +23,10 @@ import (
 
 // DetokenizeRequest is the body sent to POST /detokenize.
 type DetokenizeRequest struct {
-	// Tokens are the token IDs to convert back to text.
+	// Tokens supplies vocabulary IDs in sequence; omission returns an empty string.
 	Tokens []Token `json:"tokens,omitzero"`
 
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -35,7 +35,7 @@ type DetokenizeResponse struct {
 	// Content is the text spelled by the request tokens.
 	Content string `json:"content"`
 
-	// Extra preserves unrecognized JSON members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
