@@ -16,6 +16,8 @@ package integration
 
 import (
 	"encoding/json/jsontext"
+	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,6 +64,43 @@ func TestObserver(t *testing.T) {
 	}
 	if !ex[0].BodyClosed() {
 		t.Errorf("closing the session did not close the upgraded connection")
+	}
+}
+
+func TestServerCacheIsolation(t *testing.T) {
+	inherited := t.TempDir()
+	t.Setenv("LLAMA_CACHE", inherited)
+	t.Setenv("HF_HUB_CACHE", inherited)
+	seen := map[string]bool{}
+	var servers []*harness.Server
+	for range 2 {
+		srv := harness.StartT(t, harness.Options{UnixSocket: true, Args: []string{"--verbosity", "4"}})
+		servers = append(servers, srv)
+		cache := srv.CacheDir()
+		if seen[cache] || cache == inherited || filepath.Dir(cache) != filepath.Dir(srv.Socket) {
+			t.Fatalf("cache %q is not unique to the server scratch directory %q", cache, filepath.Dir(srv.Socket))
+		}
+		seen[cache] = true
+		// This trace comes from the router itself after reading its process environment, not the supervisor.
+		if !strings.Contains(srv.LogTail(1<<20), "cached model presets from "+cache+"\n") {
+			t.Fatal("llama-server did not resolve its cache to the private directory")
+		}
+		if info, err := os.Stat(cache); err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("expected private cache directory: %v (%v)", info, err)
+		}
+	}
+	for _, srv := range servers {
+		if err := srv.Stop(); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{srv.CacheDir(), filepath.Dir(srv.Socket)} {
+			if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("%s was not removed by Stop: %v", path, err)
+			}
+		}
+	}
+	if files, err := os.ReadDir(inherited); err != nil || len(files) != 0 {
+		t.Fatalf("inherited cache changed: %v (%v)", files, err)
 	}
 }
 

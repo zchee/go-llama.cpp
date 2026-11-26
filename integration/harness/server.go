@@ -108,11 +108,20 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		return nil, fmt.Errorf("harness: llama-server binary: %w (set %s)", err, EnvServerBin)
 	}
 	// os.MkdirTemp keeps the socket path short: UNIX socket paths are limited to about 100 bytes.
-	dir, err := os.MkdirTemp("", "llama-")
+	temp, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp(temp, "llama-")
 	if err != nil {
 		return nil, err
 	}
 	s := &Server{dir: dir, logPath: filepath.Join(dir, "server.log"), APIKey: opts.APIKey, done: make(chan struct{})}
+
+	if err := os.Mkdir(s.CacheDir(), 0o700); err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
 
 	args := []string{"--no-webui", "--log-colors", "off"}
 	if !opts.Online {
@@ -179,7 +188,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// The processes write their output straight into the file, so no goroutine copies pipes.
 	s.cmd = exec.Command(self, append([]string{bin}, args...)...)
-	s.cmd.Env = append(os.Environ(), envSupervise+"=1")
+	s.cmd.Env = append(os.Environ(), envSupervise+"=1", "LLAMA_CACHE="+s.CacheDir())
 	s.cmd.Stdin = ownerRead
 	s.cmd.Stdout = logFile
 	s.cmd.Stderr = logFile
@@ -292,6 +301,10 @@ func (s *Server) Client(t testing.TB, opts ...llama.ClientOption) (*llama.Client
 	}
 	return c, obs
 }
+
+// CacheDir returns the private llama-server cache directory removed by Stop.
+// It is separate from the harness cache for pinned model assets.
+func (s *Server) CacheDir() string { return filepath.Join(s.dir, "cache") }
 
 // PID returns the process ID of llama-server.
 func (s *Server) PID() int {
