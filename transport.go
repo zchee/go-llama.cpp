@@ -25,6 +25,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -270,17 +271,23 @@ func retryableStatus(e *APIError) bool {
 	return e.StatusCode == http.StatusServiceUnavailable && e.Type == ErrorTypeUnavailable
 }
 
-// retryAfter parses a Retry-After header given in seconds.
+// retryAfter parses the delay-seconds and HTTP-date forms of Retry-After.
 func retryAfter(h http.Header) time.Duration {
 	s := h.Get("Retry-After")
 	if s == "" {
 		return 0
 	}
-	sec, err := strconv.Atoi(s)
-	if err != nil || sec <= 0 {
-		return 0
+	if strings.Trim(s, "0123456789") == "" {
+		sec, err := strconv.ParseUint(s, 10, 64)
+		if err != nil || sec > math.MaxInt64/uint64(time.Second) {
+			return time.Duration(math.MaxInt64)
+		}
+		return time.Duration(sec) * time.Second
 	}
-	return time.Duration(sec) * time.Second
+	if at, err := http.ParseTime(s); err == nil {
+		return max(time.Until(at), 0)
+	}
+	return 0
 }
 
 // retryableError marks an attempt error that retry may retry.

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -410,8 +411,10 @@ func TestRetryAfterRedirect(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := &http.Response{StatusCode: http.StatusServiceUnavailable, Request: tt.final,
-				Body: io.NopCloser(strings.NewReader(`{"error":{"type":"unavailable_error"}}`))}
+			resp := &http.Response{
+				StatusCode: http.StatusServiceUnavailable, Request: tt.final,
+				Body: io.NopCloser(strings.NewReader(`{"error":{"type":"unavailable_error"}}`)),
+			}
 			err := c.classifyResponse(tt.original, resp)
 			if _, got := errors.AsType[*retryableError](err); got != tt.retry {
 				t.Errorf("retryable = %t for %v, want %t", got, err, tt.retry)
@@ -445,27 +448,28 @@ func TestRetryableStatus(t *testing.T) {
 }
 
 func TestRetryAfter(t *testing.T) {
-	tests := map[string]struct {
-		value string
-		want  time.Duration
-	}{
-		"success: seconds":   {value: "3", want: 3 * time.Second},
-		"ignored: absent":    {value: "", want: 0},
-		"ignored: HTTP date": {value: "Wed, 21 Oct 2015 07:28:00 GMT", want: 0},
-		"ignored: negative":  {value: "-1", want: 0},
-		"ignored: zero":      {value: "0", want: 0},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			h := http.Header{}
-			if tt.value != "" {
-				h.Set("Retry-After", tt.value)
+	synctest.Test(t, func(t *testing.T) {
+		tests := map[string]struct {
+			value string
+			want  time.Duration
+		}{
+			"success: seconds":                     {"3", 3 * time.Second},
+			"success: future HTTP date":            {time.Now().UTC().Add(time.Minute).Format(http.TimeFormat), time.Minute},
+			"ignored: past HTTP date":              {time.Now().UTC().Add(-time.Minute).Format(http.TimeFormat), 0},
+			"success: seconds overflow a duration": {"9223372037", math.MaxInt64},
+			"success: seconds overflow an integer": {strings.Repeat("9", 30), math.MaxInt64},
+			"ignored: large malformed number":      {strings.Repeat("9", 30) + "s", 0},
+			"ignored: absent":                      {},
+			"ignored: garbage":                     {"later", 0},
+			"ignored: negative":                    {"-1", 0},
+			"ignored: zero":                        {"0", 0},
+		}
+		for name, tt := range tests {
+			if got := retryAfter(http.Header{"Retry-After": {tt.value}}); got != tt.want {
+				t.Errorf("%s: retryAfter(%q) = %v, want %v", name, tt.value, got, tt.want)
 			}
-			if got := retryAfter(h); got != tt.want {
-				t.Errorf("retryAfter(%q) = %v, want %v", tt.value, got, tt.want)
-			}
-		})
-	}
+		}
+	})
 }
 
 // step is one scripted outcome of an attempt.
