@@ -157,5 +157,8 @@ type Usage struct {
 
 // Evaluate answers the questions in req using POST /v1/systemone. This endpoint does not stream.
 func (c *Client) Evaluate(ctx context.Context, req *Request, opts ...llama.RequestOption) (*Response, error) {
+	if req == nil {
+		return nil, errors.New("systemone: nil evaluate request")
+	}
 	return llama.Call[*Response](ctx, c.c, http.MethodPost, "/v1/systemone", req, opts...)
 }

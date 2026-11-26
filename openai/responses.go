@@ -17,9 +17,11 @@ package openai
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"iter"
 	"maps"
 	"net/http"
+	"sync/atomic"
 
 	llama "github.com/zchee/go-llama.cpp"
 )
@@ -104,24 +106,41 @@ type ResponseUsage struct {
 
 // Responses creates a non-streaming response. It never mutates req.
 func (c *Client) Responses(ctx context.Context, req *ResponsesRequest, opts ...llama.RequestOption) (*Response, error) {
+	if req == nil {
+		return nil, errors.New("openai: nil responses request")
+	}
 	return llama.Call[*Response](ctx, c.c, http.MethodPost, "/v1/responses", responsesStreamMode(req, false), opts...)
 }
 
 // ResponsesStream creates a streaming response. The sequence ends at EOF after response.completed;
 // a stream that ends without a response.completed event yields an error matching llama.ErrIncompleteStream.
 func (c *Client) ResponsesStream(ctx context.Context, req *ResponsesRequest, opts ...llama.RequestOption) iter.Seq2[*ResponseEvent, error] {
+	if req == nil {
+		return responsesStreamError[ResponseEvent](errors.New("openai: nil responses stream request"), llama.ErrStreamConsumed)
+	}
 	return llama.Stream[ResponseEvent](ctx, c.c, http.MethodPost, "/v1/responses", responsesStreamMode(req, true), opts...)
 }
 
 // ResponsesInputTokens counts the tokens the converted request would use, without generating a response.
 func (c *Client) ResponsesInputTokens(ctx context.Context, req *ResponsesRequest, opts ...llama.RequestOption) (*InputTokensResponse, error) {
+	if req == nil {
+		return nil, errors.New("openai: nil responses input tokens request")
+	}
 	return llama.Call[*InputTokensResponse](ctx, c.c, http.MethodPost, "/v1/responses/input_tokens", req, opts...)
 }
 
-func responsesStreamMode(req *ResponsesRequest, stream bool) *ResponsesRequest {
-	if req == nil {
-		return nil
+func responsesStreamError[T any](first, consumed error) iter.Seq2[*T, error] {
+	var used atomic.Bool
+	return func(yield func(*T, error) bool) {
+		if used.Swap(true) {
+			yield(nil, consumed)
+			return
+		}
+		yield(nil, first)
 	}
+}
+
+func responsesStreamMode(req *ResponsesRequest, stream bool) *ResponsesRequest {
 	r := *req
 	r.Stream = new(stream)
 	// The server merges extra_params last, even when it replaces stream.

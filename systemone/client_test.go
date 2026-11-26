@@ -20,6 +20,27 @@ import (
 	llama "github.com/zchee/go-llama.cpp"
 )
 
+func TestNilRequest(t *testing.T) {
+	lc, err := llama.New("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewClient(lc)
+	tests := map[string]struct {
+		call func() error
+		want string
+	}{
+		"error: Evaluate": {func() error { _, err := c.Evaluate(t.Context(), nil); return err }, "systemone: nil evaluate request"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := tt.call(); err == nil || err.Error() != tt.want {
+				t.Errorf("got %v, want %q before sending", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewClient(t *testing.T) {
 	lc, err := llama.New("http://127.0.0.1:8080")
 	if err != nil {
