@@ -137,17 +137,12 @@ func (p *Payload) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 			return err
 		}
 		*p = Null()
-	case '{', '[', '0', 't', 'f':
+	default:
 		raw, err := dec.ReadValue()
 		if err != nil {
 			return err
 		}
 		*p = Payload{kind: kind, raw: raw.Clone()}
-	default:
-		if _, err := dec.ReadValue(); err != nil {
-			return err
-		}
-		return fmt.Errorf("systemone: unexpected JSON kind %s", kind)
 	}
 	return nil
 }
