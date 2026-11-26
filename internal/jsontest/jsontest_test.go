@@ -16,12 +16,11 @@ package jsontest
 
 import (
 	"encoding/json/jsontext"
-	"fmt"
+	json "encoding/json/v2"
 	"reflect"
-	"runtime"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"go.uber.org/goleak"
@@ -31,40 +30,15 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
-// recorder captures the failures a helper reports, so that a test can assert that a helper fails.
-type recorder struct {
-	testing.TB
-	mu     sync.Mutex
+// run calls check with a recorder and returns it, for the tests below.
+func run(t *testing.T, check func(tb testing.TB)) *result {
+	msgs, fatal := Failures(t, check)
+	return &result{errors: msgs, fatal: fatal}
+}
+
+type result struct {
 	errors []string
 	fatal  bool
-}
-
-func (r *recorder) Helper() {}
-
-func (r *recorder) Errorf(format string, args ...any) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.errors = append(r.errors, fmt.Sprintf(format, args...))
-}
-
-func (r *recorder) Fatalf(format string, args ...any) {
-	r.mu.Lock()
-	r.errors = append(r.errors, fmt.Sprintf(format, args...))
-	r.fatal = true
-	r.mu.Unlock()
-	runtime.Goexit()
-}
-
-// run calls fn with a recorder on its own goroutine so that Fatalf can stop it.
-func run(t *testing.T, fn func(tb testing.TB)) *recorder {
-	r := &recorder{TB: t}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		fn(r)
-	}()
-	<-done
-	return r
 }
 
 type good struct {
@@ -259,5 +233,127 @@ func TestPointerHelpers(t *testing.T) {
 	}
 	if got := lookup(v, "/missing/0"); got != nil {
 		t.Errorf("lookup of a missing path = %v, want nil", got)
+	}
+}
+
+// opaque is a sum type that keeps its branches in unexported fields behind its own JSON methods, the way
+// llama.Prompt and openai.MessageContent do.
+type opaque struct {
+	object *goodInner
+	list   []goodInner
+}
+
+func (o opaque) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if o.object != nil {
+		return json.MarshalEncode(enc, o.object)
+	}
+	return json.MarshalEncode(enc, o.list)
+}
+
+func (o *opaque) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	if dec.PeekKind() == '{' {
+		o.object = new(goodInner)
+		return json.UnmarshalDecode(dec, o.object)
+	}
+	return json.UnmarshalDecode(dec, &o.list)
+}
+
+type holdsOpaque struct {
+	V     opaque                    `json:"v"`
+	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+func TestNoUnknownSeesInsideOpaqueTypes(t *testing.T) {
+	tests := map[string]struct {
+		check func(tb testing.TB)
+		want  string
+	}{
+		"error: unknown member in the object branch": {
+			check: func(tb testing.TB) { NoUnknown[opaque](tb, []byte(`{"b":"x","future":1}`), nil) },
+			want:  "/: future",
+		},
+		"error: unknown member in an array element": {
+			check: func(tb testing.TB) { NoUnknown[holdsOpaque](tb, []byte(`{"v":[{"b":"x"},{"b":"y","later":2}]}`), nil) },
+			want:  "/v/1: later",
+		},
+		"success: nothing unknown": {
+			check: func(tb testing.TB) { NoUnknown[holdsOpaque](tb, []byte(`{"v":{"b":"x"}}`), nil) },
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := run(t, tt.check)
+			if tt.want == "" {
+				if len(r.errors) != 0 {
+					t.Errorf("unexpected failures: %v", r.errors)
+				}
+				return
+			}
+			if len(r.errors) != 1 || !strings.Contains(r.errors[0], tt.want) {
+				t.Errorf("failures = %v, want one naming %q", r.errors, tt.want)
+			}
+		})
+	}
+}
+
+type lossyNumber struct {
+	N     float64                   `json:"n"`
+	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+// 9007199254740993 is 2^53+1, the first integer a float64 cannot hold.
+func TestComparisonsKeepNumbersExact(t *testing.T) {
+	tests := map[string]struct {
+		check    func(tb testing.TB)
+		wantFail bool
+	}{
+		"error: RoundTrip through float64": {
+			check:    func(tb testing.TB) { RoundTrip[float64](tb, []byte(`9007199254740993`)) },
+			wantFail: true,
+		},
+		"error: InjectUnknown through a float64 field": {
+			check:    func(tb testing.TB) { InjectUnknown[lossyNumber](tb, []byte(`{"n":9007199254740993}`)) },
+			wantFail: true,
+		},
+		"success: large number kept raw in Extra": {
+			check: func(tb testing.TB) { InjectUnknown[lossyNumber](tb, []byte(`{"n":1,"big":9007199254740993}`)) },
+		},
+		"success: spellings of the same value": {
+			check: func(tb testing.TB) { RoundTrip[float64](tb, []byte(`1.50e0`)) },
+		},
+		"success: exact integer through int64": {
+			check: func(tb testing.TB) { RoundTrip[int64](tb, []byte(`9007199254740993`)) },
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := run(t, tt.check)
+			if failed := len(r.errors) > 0; failed != tt.wantFail {
+				t.Errorf("failed = %t, want %t: %v", failed, tt.wantFail, r.errors)
+			}
+		})
+	}
+	if !number("1").Equal(number("1.0e0")) || number("9007199254740993").Equal(number("9007199254740992")) {
+		t.Errorf("number.Equal does not compare values exactly")
+	}
+}
+
+// Node embeds itself through a pointer; encoding/json/v2 accepts it.
+type Node struct {
+	*Node
+	A     int                       `json:"a"`
+	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+func TestCheckFallbacksSelfEmbedding(t *testing.T) {
+	done := make(chan *result, 1)
+	go func() { done <- run(t, func(tb testing.TB) { CheckFallbacks[Node](tb) }) }()
+	select {
+	case r := <-done:
+		if len(r.errors) != 0 {
+			t.Errorf("unexpected failures: %v", r.errors)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("CheckFallbacks did not return for a self-embedding struct")
 	}
 }

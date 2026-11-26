@@ -17,6 +17,7 @@ package openai
 import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"strings"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -159,4 +160,51 @@ func TestSharedTypesKeepUnknownMembers(t *testing.T) {
 	jsontest.CheckFallbacks[chatShape](t)
 	jsontest.CheckFallbacks[NamedToolChoice](t)
 	jsontest.CheckFallbacks[ContentPart](t)
+}
+
+// TestNoUnknownSeesInsideSumTypes checks that the unknown-member gate reaches the content parts of a
+// MessageContent and the object of a ToolChoice, which are kept in unexported fields.
+func TestNoUnknownSeesInsideSumTypes(t *testing.T) {
+	tests := map[string]struct {
+		check func(tb testing.TB)
+		want  string
+	}{
+		"error: content part": {
+			check: func(tb testing.TB) {
+				jsontest.NoUnknown[MessageContent](tb, []byte(`[{"type":"text","text":"x"},{"type":"text","text":"y","future":1}]`), nil)
+			},
+			want: "/1: future",
+		},
+		"error: image of a content part": {
+			check: func(tb testing.TB) {
+				jsontest.NoUnknown[Message](tb, []byte(`{"role":"user","content":[{"type":"image_url","image_url":{"url":"u","x":1}}]}`), nil)
+			},
+			want: "/content/0/image_url: x",
+		},
+		"error: named tool choice": {
+			check: func(tb testing.TB) {
+				jsontest.NoUnknown[ToolChoice](tb, []byte(`{"type":"function","function":{"name":"f","later":2}}`), nil)
+			},
+			want: "/function: later",
+		},
+		"success: nothing unknown": {
+			check: func(tb testing.TB) {
+				jsontest.NoUnknown[Message](tb, []byte(`{"role":"user","content":[{"type":"text","text":"x"}]}`), nil)
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			msgs, _ := jsontest.Failures(t, tt.check)
+			if tt.want == "" {
+				if len(msgs) != 0 {
+					t.Errorf("unexpected failures: %v", msgs)
+				}
+				return
+			}
+			if len(msgs) != 1 || !strings.Contains(msgs[0], tt.want) {
+				t.Errorf("failures = %v, want one naming %q", msgs, tt.want)
+			}
+		})
+	}
 }
