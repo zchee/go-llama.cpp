@@ -66,14 +66,17 @@ func TestRequestExtra(t *testing.T) {
 			Name  string
 			state record
 		}{state: child}},
-		"error: caller-defined type":                 {child, "record", "enabled", "Flag"},
-		"error: promoted member":                     {&CompletionRequest{Extra: map[string]jsontext.Value{"n_predict": jsontext.Value(`1`)}}, "CompletionRequest", "n_predict", "NPredict"},
-		"error: nested object":                       {nested{Child: &child}, "record", "enabled", "Flag"},
-		"error: slice element":                       {nested{Items: []record{{}, child}}, "record", "enabled", "Flag"},
-		"error: map element":                         {nested{Table: map[string]record{"entry": child}}, "record", "enabled", "Flag"},
-		"error: object behind custom prompt encoder": {CompletionRequest{Prompt: ObjectPrompt(PromptObject{PromptString: TokenizeText("x"), Extra: map[string]jsontext.Value{"multimodal_data": jsontext.Value(`[]`)}})}, "PromptObject", "multimodal_data", "MultimodalData"},
-		"success: exact names only":                  {body: record{Extra: map[string]jsontext.Value{"Enabled": jsontext.Value(`1`)}}},
-		"success: top-level map is unguarded":        {body: map[string]record{"entry": child}},
+		"error: caller-defined type":                      {child, "record", "enabled", "Flag"},
+		"error: promoted member":                          {&CompletionRequest{Extra: map[string]jsontext.Value{"n_predict": jsontext.Value(`1`)}}, "CompletionRequest", "n_predict", "NPredict"},
+		"error: nested object":                            {nested{Child: &child}, "record", "enabled", "Flag"},
+		"error: slice element":                            {nested{Items: []record{{}, child}}, "record", "enabled", "Flag"},
+		"error: map element":                              {nested{Table: map[string]record{"entry": child}}, "record", "enabled", "Flag"},
+		"error: object behind custom prompt encoder":      {CompletionRequest{Prompt: ObjectPrompt(PromptObject{PromptString: TokenizeText("x"), Extra: map[string]jsontext.Value{"multimodal_data": jsontext.Value(`[]`)}})}, "PromptObject", "multimodal_data", "MultimodalData"},
+		"success: exact names only":                       {body: record{Extra: map[string]jsontext.Value{"Enabled": jsontext.Value(`1`)}}},
+		"error: top-level slice":                          {[]record{{}, child}, "record", "enabled", "Flag"},
+		"error: top-level array":                          {[2]record{{}, child}, "record", "enabled", "Flag"},
+		"error: top-level map":                            {map[string]record{"entry": child}, "record", "enabled", "Flag"},
+		"success: top-level map key is not a typed field": {body: map[string]record{"enabled": {}}},
 	}
 	c, err := New("http://localhost")
 	if err != nil {

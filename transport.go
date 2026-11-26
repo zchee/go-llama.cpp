@@ -78,7 +78,7 @@ func encodeBody(body any) ([]byte, string, error) {
 //
 // The body is encoded as follows: nil sends no body, *Body and Body are sent as is, jsontext.Value is sent as
 // JSON, and any other value is marshaled with encoding/json/v2. The body is held in memory and GetBody is set, so
-// the request can be resent. In a struct body, a key in an Extra fallback map must not be the JSON name of a
+// the request can be resent. In each struct in the body, a key in an Extra fallback map must not be the JSON name of a
 // field in the same object, even when the typed field is omitted. Set the typed field instead.
 func (c *Client) NewRequest(ctx context.Context, method, path string, body any, opts ...RequestOption) (*http.Request, error) {
 	req, _, err := c.buildRequest(ctx, method, path, body, "", opts)

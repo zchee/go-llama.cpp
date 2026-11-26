@@ -318,7 +318,7 @@ An SSE stream that ends before its required final frame yields an error that mat
 
 ## Unknown members survive a round trip
 
-Wire object types with `Extra map[string]jsontext.Value` (tagged `json:",embed"`) keep unrecognized JSON members so they survive decoding and re-encoding. Before sending a typed request, including a multipart speech request or a typed realtime client event, the client rejects any `Extra` key that exactly matches a typed JSON member of the same object, even if the typed field is unset. Use the typed field instead, for example `systemone.Request.Model` rather than `Extra["model"]`.
+Wire object types with `Extra map[string]jsontext.Value` (tagged `json:",embed"`) keep unrecognized JSON members so they survive decoding and re-encoding. Before sending a typed request, including a multipart speech request or a typed realtime client event, the client rejects any `Extra` key that exactly matches a typed JSON member of the same object, even if the typed field is unset. This also applies to objects in a top-level slice, array, or map. Use the typed field instead, for example `systemone.Request.Model` rather than `Extra["model"]`.
 
 Unrecognized tool-choice forms are available through `ToolChoice.Unknown()`, and unknown realtime frames through `ClientEvent.Raw` or `ServerEvent.Raw`. Realtime tool definitions carry `DeferLoading` and `Strict` as optional booleans. `anthropic.RawContent` and `systemone.Raw` accept encoded JSON for content and payloads, respectively.
 

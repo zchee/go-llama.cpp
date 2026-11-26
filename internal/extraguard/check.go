@@ -13,15 +13,14 @@
 // limitations under the License.
 
 // Package extraguard checks for conflicts between typed fields and extra request members.
-// It starts at a struct, following non-nil pointers and interfaces to their values.
-// Within the struct it checks the selected JSON fields, flattening embedded structs,
-// and follows nested objects through pointers, interfaces, slice and array elements,
-// and map values (not keys). It compares exact names, including those of unset fields.
+// It follows pointers, interfaces, slice and array elements, and map values (not keys).
+// In each struct it checks the selected JSON fields, flattening embedded structs.
+// It compares exact names, including those of unset fields.
 // For structs with a MarshalJSONTo method on the value or pointer, it also visits
 // private fields that can contain objects, since the method can encode those children.
 // It does not execute custom codecs or infer names they synthesize; other JSON methods
 // do not make private fields visible to the check. Fields tagged json:"-" are ignored.
-// Nil values, top-level collections, and raw JSON (jsontext.Value) are left alone;
+// Nil values and raw JSON (jsontext.Value) are left alone;
 // callers pass raw HTTP bodies directly to the transport without calling Check.
 package extraguard
 
@@ -62,13 +61,10 @@ type requestVisit struct {
 
 // Check rejects extra members that name a typed field in the same request object.
 func Check(body any) error {
-	return walkRequest(reflect.ValueOf(body), nil, true)
+	return walkRequest(reflect.ValueOf(body), nil)
 }
 
-func walkRequest(v reflect.Value, parent *requestVisit, root bool) error {
-	if root && v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface && v.Kind() != reflect.Struct {
-		return nil
-	}
+func walkRequest(v reflect.Value, parent *requestVisit) error {
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Map, reflect.Slice:
 		if v.IsNil() {
@@ -87,19 +83,19 @@ func walkRequest(v reflect.Value, parent *requestVisit, root bool) error {
 	}
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
-		return walkRequest(v.Elem(), parent, root)
+		return walkRequest(v.Elem(), parent)
 	case reflect.Slice, reflect.Array:
 		if v.Type() == reflect.TypeFor[jsontext.Value]() {
 			return nil
 		}
 		for i := range v.Len() {
-			if err := walkRequest(v.Index(i), parent, false); err != nil {
+			if err := walkRequest(v.Index(i), parent); err != nil {
 				return err
 			}
 		}
 	case reflect.Map:
 		for it := v.MapRange(); it.Next(); {
-			if err := walkRequest(it.Value(), parent, false); err != nil {
+			if err := walkRequest(it.Value(), parent); err != nil {
 				return err
 			}
 		}
@@ -120,7 +116,7 @@ func walkRequest(v reflect.Value, parent *requestVisit, root bool) error {
 			}
 		}
 		for _, path := range fields.children {
-			if err := walkRequest(fieldAt(v, path), parent, false); err != nil {
+			if err := walkRequest(fieldAt(v, path), parent); err != nil {
 				return err
 			}
 		}
