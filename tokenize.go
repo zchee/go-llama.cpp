@@ -81,21 +81,7 @@ func (c TokenizeContent) MarshalJSONTo(enc *jsontext.Encoder) error {
 	if c.parts == nil {
 		return errors.New("llama: tokenize content is unset")
 	}
-	if err := enc.WriteToken(jsontext.BeginArray); err != nil {
-		return err
-	}
-	for _, part := range c.parts {
-		text, isText := part.Text()
-		tok := jsontext.String(text)
-		if !isText {
-			id, _ := part.Token()
-			tok = jsontext.Int(int64(id))
-		}
-		if err := enc.WriteToken(tok); err != nil {
-			return err
-		}
-	}
-	return enc.WriteToken(jsontext.EndArray)
+	return writePromptParts(enc, c.parts)
 }
 
 // UnmarshalJSONFrom implements json.UnmarshalerFrom.

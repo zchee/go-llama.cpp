@@ -394,6 +394,22 @@ func (p PromptPart) Text() (string, bool) { return p.text, !p.isToken }
 // Token returns the token id of a token element.
 func (p PromptPart) Token() (Token, bool) { return p.token, p.isToken }
 
+func writePromptParts(enc *jsontext.Encoder, parts []PromptPart) error {
+	if err := enc.WriteToken(jsontext.BeginArray); err != nil {
+		return err
+	}
+	for _, part := range parts {
+		tok := jsontext.String(part.text)
+		if part.isToken {
+			tok = jsontext.Int(int64(part.token))
+		}
+		if err := enc.WriteToken(tok); err != nil {
+			return err
+		}
+	}
+	return enc.WriteToken(jsontext.EndArray)
+}
+
 // TextPrompt returns a prompt given as a string.
 func TextPrompt(s string) Prompt { return Prompt{kind: PromptKindText, text: s} }
 
@@ -506,19 +522,7 @@ func (p Prompt) marshalSingle(enc *jsontext.Encoder) error {
 		if !slices.ContainsFunc(p.parts, func(pp PromptPart) bool { return pp.isToken }) {
 			return errors.New("llama: a mixed prompt needs at least one token; the server reads an array of strings as several prompts")
 		}
-		if err := enc.WriteToken(jsontext.BeginArray); err != nil {
-			return err
-		}
-		for _, pp := range p.parts {
-			tok := jsontext.String(pp.text)
-			if pp.isToken {
-				tok = jsontext.Int(int64(pp.token))
-			}
-			if err := enc.WriteToken(tok); err != nil {
-				return err
-			}
-		}
-		return enc.WriteToken(jsontext.EndArray)
+		return writePromptParts(enc, p.parts)
 	case PromptKindObject:
 		return json.MarshalEncode(enc, p.object)
 	default:
