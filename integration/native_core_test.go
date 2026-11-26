@@ -21,6 +21,7 @@ import (
 	"iter"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -220,6 +221,40 @@ func TestSlotsNegativeIDNoRequest(t *testing.T) {
 			}
 			if ex := obs.Exchanges(); len(ex) != 0 {
 				t.Fatalf("negative slot id sent %d HTTP request(s): %+v", len(ex), ex)
+			}
+		})
+	}
+}
+
+func TestEraseSlotIDRange(t *testing.T) {
+	tests := map[string]struct {
+		id     string
+		status int
+	}{
+		"success: signed 32-bit maximum accepted": {"2147483647", http.StatusOK},
+		"error: above signed 32-bit maximum":      {"2147483648", http.StatusBadRequest},
+	}
+	for name, tt := range tests {
+		if strconv.IntSize == 32 && tt.status == http.StatusBadRequest {
+			// This ID cannot be supplied through the typed API on 32-bit systems.
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			id, err := strconv.Atoi(tt.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, obs := slotsPreset.server(t).Client(t)
+			out, err := c.EraseSlot(t.Context(), id, nil)
+			if tt.status == http.StatusOK {
+				if err != nil || out == nil || out.IDSlot != id {
+					t.Errorf("EraseSlot(%d) = %+v, %v; want the requested ID in a successful response", id, out, err)
+				}
+			} else if e, ok := errors.AsType[*llama.APIError](err); !ok || e.StatusCode != tt.status || e.Type != llama.ErrorTypeInvalidRequest || e.Message != "Invalid slot ID" {
+				t.Errorf("EraseSlot(%d) error = %v; want HTTP 400 invalid_request_error: Invalid slot ID", id, err)
+			}
+			if ex := obs.Exchanges(); len(ex) != 1 || ex[0].StatusCode != tt.status {
+				t.Errorf("EraseSlot(%d) exchanges = %+v; want one HTTP %d", id, ex, tt.status)
 			}
 		})
 	}

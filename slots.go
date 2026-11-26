@@ -114,27 +114,27 @@ func (c *Client) Slots(ctx context.Context, opts ...RequestOption) ([]Slot, erro
 
 // SaveSlot saves the prompt cache of a slot to req.Filename on the server.
 //
-// Negative slot ids are rejected before sending a request because the server converts negative ids to unsigned and
-// wraps modulo the slot count. An out-of-range non-negative id wraps around the server's slot count; the client
-// cannot know the count.
+// Negative slot IDs are rejected before sending because the server converts them to unsigned and wraps
+// modulo the slot count. A non-negative ID that fits in a C++ int also wraps modulo the slot count, which
+// the client does not know. The server returns HTTP 400 for a larger ID.
 func (c *Client) SaveSlot(ctx context.Context, id int, req *SlotFileRequest, opts ...RequestOption) (*SlotSaveResponse, error) {
 	return slotsAction[*SlotSaveResponse](ctx, c, id, "save", req, opts)
 }
 
 // RestoreSlot restores a slot's prompt cache from req.Filename on the server.
 //
-// Negative slot ids are rejected before sending a request because the server converts negative ids to unsigned and
-// wraps modulo the slot count. An out-of-range non-negative id wraps around the server's slot count; the client
-// cannot know the count.
+// Negative slot IDs are rejected before sending because the server converts them to unsigned and wraps
+// modulo the slot count. A non-negative ID that fits in a C++ int also wraps modulo the slot count, which
+// the client does not know. The server returns HTTP 400 for a larger ID.
 func (c *Client) RestoreSlot(ctx context.Context, id int, req *SlotFileRequest, opts ...RequestOption) (*SlotRestoreResponse, error) {
 	return slotsAction[*SlotRestoreResponse](ctx, c, id, "restore", req, opts)
 }
 
 // EraseSlot removes the cached tokens of a slot. Pass nil for a single-model server.
 //
-// Negative slot ids are rejected before sending a request because the server converts negative ids to unsigned and
-// wraps modulo the slot count. An out-of-range non-negative id wraps around the server's slot count; the client
-// cannot know the count.
+// Negative slot IDs are rejected before sending because the server converts them to unsigned and wraps
+// modulo the slot count. A non-negative ID that fits in a C++ int also wraps modulo the slot count, which
+// the client does not know. The server returns HTTP 400 for a larger ID.
 func (c *Client) EraseSlot(ctx context.Context, id int, req *SlotEraseRequest, opts ...RequestOption) (*SlotEraseResponse, error) {
 	if req == nil {
 		return slotsAction[*SlotEraseResponse](ctx, c, id, "erase", nil, opts)
