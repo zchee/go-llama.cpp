@@ -15,8 +15,9 @@
 // Command record sends one request to a real llama-server and writes the request body and the response body as
 // test fixtures, so that codec tests decode bytes the server actually produced.
 //
-// For a fixture prefix testdata/<endpoint>/<case> it writes <case>.req.json (the request body as sent, when there
-// is one) and the response body as <case>.resp.json (application/json), <case>.resp.sse (text/event-stream),
+// For a fixture prefix testdata/<endpoint>/<case> it writes the request body as sent, when there is one, as
+// <case>.req.json (a -content-type that starts with application/json, the default) or <case>.req.bin (any
+// other), and the response body as <case>.resp.json (application/json), <case>.resp.sse (text/event-stream),
 // <case>.resp.txt (text/plain) or <case>.resp.bin (anything else).
 //
 // It either starts a server from a model of integration/models.yaml and stops it afterwards, or talks to a
