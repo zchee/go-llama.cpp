@@ -33,12 +33,71 @@ func chatRequest() *openai.ChatCompletionRequest {
 }
 
 var chatControlPreset = &serverPreset{name: "chat-control", options: func(t testing.TB) harness.Options {
-	return harness.Options{Model: harness.Model(t, "stories260K"), Args: []string{"--alias", "stories", "--ctx-size", "2048", "--parallel", "1", "--threads-http", "4", "--threads", "1"}}
+	return harness.Options{Model: harness.Model(t, "stories260K"), Args: []string{"--alias", "stories", "--ctx-size", "2048", "--parallel", "1", "--threads-http", "4", "--threads", "1", "--jinja", "--chat-template", chatThinkingTemplate}}
 }}
 
 var chatVisionPreset = &serverPreset{name: "chat-vision", options: func(t testing.TB) harness.Options {
 	return harness.Options{Model: harness.Model(t, "tinygemma3"), Args: []string{"--alias", "vision", "--ctx-size", "2048", "--parallel", "1", "--mmproj", harness.Model(t, "tinygemma3-mmproj")}}
 }}
+
+// chatThinkingTemplate renders reasoning_content inside <think> tags and opens a reasoning block in the
+// generation prompt. The server detects the tags and only then reads reasoning_control from a request.
+const chatThinkingTemplate = `{%- for m in messages -%}
+<|im_start|>{{ m.role }}
+{% if m.reasoning_content %}<think>
+{{ m.reasoning_content }}
+</think>
+{% endif %}{{ m.content }}<|im_end|>
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+<|im_start|>assistant
+<think>
+{%- endif -%}`
+
+func TestChatReasoningControlArmed(t *testing.T) {
+	c, _ := chatControlPreset.server(t).Client(t)
+	chat := openai.NewClient(c)
+	req := chatRequest()
+	req.MaxTokens = new(512)
+	req.IgnoreEOS = new(true)
+	req.ReasoningControl = new(true)
+	for chunk, err := range chat.ChatCompletionsStream(t.Context(), req) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if chunk.ID == "" {
+			t.Fatal("initial chunk has no ID")
+		}
+		ctl, err := chat.ControlChatCompletion(t.Context(), &openai.ControlChatCompletionRequest{ID: chunk.ID, Action: "reasoning_end"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ctl.Success {
+			t.Fatalf("armed live stream control: %+v", ctl)
+		}
+		return
+	}
+	t.Fatal("stream ended before the first chunk")
+}
+
+func TestChatIntegerLogprobs(t *testing.T) {
+	c, _ := presetStories260K.server(t).Client(t)
+	chat := openai.NewClient(c)
+	req := chatRequest()
+	req.NProbs = new(2)
+	res, err := chat.ChatCompletions(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Choices) == 0 || res.Choices[0].Logprobs == nil || len(res.Choices[0].Logprobs.Content) == 0 {
+		t.Fatalf("n_probs returned no probabilities: %+v", res.Choices)
+	}
+	for _, prob := range res.Choices[0].Logprobs.Content {
+		if len(prob.TopLogprobs) != *req.NProbs {
+			t.Fatalf("token %q has %d alternatives, want %d", prob.Token, len(prob.TopLogprobs), *req.NProbs)
+		}
+	}
+}
 
 func TestChatStreamControl(t *testing.T) {
 	c, obs := chatControlPreset.server(t).Client(t)

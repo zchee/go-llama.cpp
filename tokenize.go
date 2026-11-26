@@ -36,6 +36,7 @@ type TokenizeRequest struct {
 	// WithPieces returns each token's spelling as well as its ID; the server defaults to false.
 	WithPieces *bool `json:"with_pieces,omitzero"`
 
+	// Extra preserves unrecognized JSON members.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -140,16 +141,21 @@ func (c *TokenizeContent) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // TokenizeResponse is the JSON returned by POST /tokenize.
 type TokenizeResponse struct {
+	// Tokens is the model's token sequence for the request content.
 	Tokens []TokenizeToken `json:"tokens"`
 
+	// Extra preserves unrecognized JSON members.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // TokenizeToken is a bare token ID when Piece is nil, or an object with an ID and piece otherwise.
 type TokenizeToken struct {
-	ID    Token       `json:"id"`
+	// ID is the token's position in the model's vocabulary.
+	ID Token `json:"id"`
+	// Piece is the token's spelling, present only when the request set with_pieces.
 	Piece *TokenPiece `json:"piece"`
 
+	// Extra preserves unrecognized JSON members.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

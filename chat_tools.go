@@ -50,11 +50,13 @@ type FunctionDefinition struct {
 }
 
 // ToolChoice is the "tool_choice" of a request: a mode, a named function, or an allowlist of functions.
-// Build one with ToolChoiceMode, ToolChoiceFunction, or ToolChoiceAllowedTools.
+// Build one with ToolChoiceMode, ToolChoiceFunction, or ToolChoiceAllowedTools. An object decoded with a
+// type other than "function" or "allowed_tools" is kept as received and re-encoded verbatim.
 type ToolChoice struct {
 	mode     string
 	function *NamedToolChoice
 	allowed  *AllowedToolChoice
+	unknown  *jsontext.Value
 }
 
 // NamedToolChoice is the object form of a ToolChoice that names one function.
@@ -121,16 +123,27 @@ func (c ToolChoice) Function() *NamedToolChoice { return c.function }
 // AllowedTools returns the object of a tool choice given as an allowlist.
 func (c ToolChoice) AllowedTools() *AllowedToolChoice { return c.allowed }
 
+// Unknown returns the raw bytes of a decoded object whose type the package does not know, or nil.
+func (c ToolChoice) Unknown() jsontext.Value {
+	if c.unknown == nil {
+		return nil
+	}
+	return c.unknown.Clone()
+}
+
 // IsZero reports whether the tool choice is unset.
-func (c ToolChoice) IsZero() bool { return c.mode == "" && c.function == nil && c.allowed == nil }
+func (c ToolChoice) IsZero() bool { return c == (ToolChoice{}) }
 
 // Equal reports whether two tool choices have the same form and content.
 func (c ToolChoice) Equal(o ToolChoice) bool {
-	return c.mode == o.mode && reflect.DeepEqual(c.function, o.function) && reflect.DeepEqual(c.allowed, o.allowed)
+	return reflect.DeepEqual(c, o)
 }
 
 // MarshalJSONTo implements json.MarshalerTo.
 func (c ToolChoice) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if c.unknown != nil {
+		return enc.WriteValue(*c.unknown)
+	}
 	if c.allowed != nil {
 		return json.MarshalEncode(enc, c.allowed)
 	}
@@ -161,20 +174,22 @@ func (c *ToolChoice) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		if err := json.Unmarshal(v, &tag, opts, json.RejectUnknownMembers(false)); err != nil {
 			return err
 		}
-		if tag.Type == "allowed_tools" {
+		switch tag.Type {
+		case "allowed_tools":
 			a := new(AllowedToolChoice)
 			if err := json.Unmarshal(v, a, opts); err != nil {
 				return err
 			}
 			*c = ToolChoice{allowed: a}
-			return nil
+		case "function":
+			n := new(NamedToolChoice)
+			if err := json.Unmarshal(v, n, opts); err != nil {
+				return err
+			}
+			*c = ToolChoice{function: n}
+		default:
+			*c = ToolChoice{unknown: new(v.Clone())}
 		}
-		// Preserve the legacy handling of object types other than "allowed_tools".
-		n := new(NamedToolChoice)
-		if err := json.Unmarshal(v, n, opts); err != nil {
-			return err
-		}
-		*c = ToolChoice{function: n}
 	default:
 		return fmt.Errorf("openai: tool_choice must be a string or an object, got %s", kind)
 	}

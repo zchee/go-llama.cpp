@@ -22,15 +22,19 @@ import (
 
 // DetokenizeRequest is the body sent to POST /detokenize.
 type DetokenizeRequest struct {
+	// Tokens are the token IDs to convert back to text.
 	Tokens []Token `json:"tokens,omitzero"`
 
+	// Extra preserves unrecognized JSON members.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // DetokenizeResponse is the JSON returned by POST /detokenize.
 type DetokenizeResponse struct {
+	// Content is the text spelled by the request tokens.
 	Content string `json:"content"`
 
+	// Extra preserves unrecognized JSON members.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

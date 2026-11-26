@@ -71,16 +71,10 @@ func TestToolChoiceJSON(t *testing.T) {
 func TestToolChoiceUnknownDiscriminator(t *testing.T) {
 	tests := map[string]struct {
 		input string
-		want  string
 	}{
-		"success: unknown object with a function": {
-			input: `{"type":"future","function":{"name":"f","future_nested":true},"config":{"enabled":true}}`,
-			want:  `{"type":"future","function":{"name":"f","future_nested":true},"config":{"enabled":true}}`,
-		},
-		"success: unknown object without a function uses legacy defaults": {
-			input: `{"type":"future","config":{"enabled":true}}`,
-			want:  `{"type":"future","function":{"name":""},"config":{"enabled":true}}`,
-		},
+		"success: unknown object with a function":                 {input: `{"type":"future","function":{"name":"f","future_nested":true},"config":{"enabled":true}}`},
+		"success: unknown object without a function":              {input: `{"type":"future","config":{"enabled":true}}`},
+		"success: unknown object with a different function shape": {input: `{"type":"future","function":false}`},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -88,15 +82,15 @@ func TestToolChoiceUnknownDiscriminator(t *testing.T) {
 			if err := json.Unmarshal([]byte(tt.input), &got); err != nil {
 				t.Fatal(err)
 			}
-			if got.AllowedTools() != nil || got.Function() == nil || got.Function().Type != "future" {
-				t.Errorf("unknown discriminator should retain the legacy object: %+v", got)
+			if got.AllowedTools() != nil || got.Function() != nil || got.Mode() != "" || got.IsZero() || string(got.Unknown()) != tt.input {
+				t.Errorf("unknown discriminator reported as a known or unset choice: %+v", got)
 			}
 			encoded, err := json.Marshal(got, jsonOptions)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diff := gocmp.Diff(tt.want, string(encoded)); diff != "" {
-				t.Errorf("legacy encoding differs (-want +got):\n%s", diff)
+			if diff := gocmp.Diff(tt.input, string(encoded)); diff != "" {
+				t.Errorf("unknown tool choice changed (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -147,6 +141,7 @@ func FuzzToolChoiceJSON(f *testing.F) {
 		f.Add([]byte(request.ToolChoice))
 	}
 	f.Add([]byte(`{"type":"allowed_tools","allowed_tools":{}}`))
+	f.Add([]byte(`{"type":"future","config":{"enabled":true}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var before, after ToolChoice
 		if err := json.Unmarshal(data, &before, jsonOptions); err != nil {

@@ -52,7 +52,8 @@ type ChatCompletionRequest struct {
 	ParallelToolCalls *bool `json:"parallel_tool_calls,omitzero"`
 	// ResponseFormat constrains the output to text, a JSON object, or a JSON schema.
 	ResponseFormat *ResponseFormat `json:"response_format,omitzero"`
-	// Logprobs requests token probabilities in each choice.
+	// Logprobs requests token probabilities in each choice. The server also accepts an integer
+	// here as an alias of n_probs; send that form through SamplingParams.NProbs instead.
 	Logprobs *bool `json:"logprobs,omitzero"`
 	// TopLogprobs is the number of alternatives per token when Logprobs is true.
 	TopLogprobs *int `json:"top_logprobs,omitzero"`

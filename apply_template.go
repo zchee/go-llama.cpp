@@ -20,7 +20,9 @@ import (
 	"net/http"
 )
 
-// ApplyTemplateRequest is the body sent to POST /apply-template. The server parses the chat options but does not run inference.
+// ApplyTemplateRequest is the body sent to POST /apply-template. The server renders a prompt without running inference.
+// It parses ReasoningBudgetTokens, ThinkingBudgetTokens, ReasoningBudgetMessage and ReasoningControl
+// for generation, but none of them affects the rendered prompt.
 type ApplyTemplateRequest struct {
 	// Messages are the conversation turns, in order.
 	Messages []Message `json:"messages,omitzero"`
