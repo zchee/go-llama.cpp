@@ -31,9 +31,12 @@
 //
 // Request and response types follow the JSON the server reads and writes. Every struct that maps a JSON object
 // has an Extra field tagged `json:",embed"` that collects members the struct does not name, so that members added
-// by newer servers survive a decode and encode round trip at every level. Optional scalars are pointers; set
-// them with new, for example Temperature: new(0.0). Values that take several JSON shapes, such as Prompt,
-// LogitBias and StringOrSlice, are built with constructor functions.
+// by newer servers survive a decode and encode round trip at every level. Before sending a typed JSON request,
+// the client rejects an Extra key whose name exactly matches a JSON member of the same struct, including
+// promoted members, even when the typed field is unset. Use the named Go field instead.
+//
+// Optional scalars are pointers; set them with new, for example Temperature: new(0.0). Values that take several
+// JSON shapes, such as Prompt, LogitBias and StringOrSlice, are built with constructor functions.
 //
 // # Errors
 //

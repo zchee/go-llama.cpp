@@ -58,6 +58,9 @@ func encodeBody(body any) ([]byte, string, error) {
 	case jsontext.Value:
 		return b, "application/json", nil
 	default:
+		if err := checkRequestExtra(body); err != nil {
+			return nil, "", err
+		}
 		data, err := json.Marshal(body, jsonOptions)
 		if err != nil {
 			return nil, "", fmt.Errorf("llama: encoding request body: %w", err)
@@ -72,7 +75,8 @@ func encodeBody(body any) ([]byte, string, error) {
 //
 // The body is encoded as follows: nil sends no body, *Body and Body are sent as is, jsontext.Value is sent as
 // JSON, and any other value is marshaled with encoding/json/v2. The body is held in memory and GetBody is set, so
-// the request can be resent.
+// the request can be resent. In a struct body, a key in an Extra fallback map must not be the JSON name of a
+// field in the same object, even when the typed field is omitted. Set the typed field instead.
 func (c *Client) NewRequest(ctx context.Context, method, path string, body any, opts ...RequestOption) (*http.Request, error) {
 	req, _, err := c.buildRequest(ctx, method, path, body, "", opts)
 	return req, c.RedactError(err)
@@ -355,7 +359,7 @@ func (b *cappedBackOff) NextBackOff() time.Duration {
 // methods and reaches any route, including the documented aliases and undocumented routes.
 //
 // See NewRequest for how body is encoded. A response with a non-2xx status is returned as an *APIError. An empty
-// response body leaves Resp at its zero value.
+// response body leaves Resp at its zero value. Any error returns the zero value of Resp, never a partial decode.
 func Call[Resp any](ctx context.Context, c *Client, method, path string, body any, opts ...RequestOption) (Resp, error) {
 	var out Resp
 	resp, err := c.do(ctx, method, path, body, "application/json", opts)
@@ -371,7 +375,8 @@ func Call[Resp any](ctx context.Context, c *Client, method, path string, body an
 		return out, nil
 	}
 	if err := json.Unmarshal(data, &out, jsonOptions); err != nil {
-		return out, c.RedactError(fmt.Errorf("llama: decoding %s %s response: %w", method, path, err))
+		var zero Resp
+		return zero, c.RedactError(fmt.Errorf("llama: decoding %s %s response: %w", method, path, err))
 	}
 	return out, nil
 }
