@@ -1,0 +1,15 @@
+# Model files of the integration tests. Each entry is pinned to a Hugging Face repository revision (a commit
+# hash) and to the sha256 of the file at that revision; harness.Model downloads
+# https://huggingface.co/<repo>/resolve/<revision>/<file> without credentials and refuses a file whose
+# sha256 differs.
+#
+# The repositories are the ones of the upstream test presets in tools/server/tests/utils.py of llama.cpp v1.1.0.
+models:
+  # Preset tinyllama2 (alias "tinyllama-2"): completion, tokenization, slots, props, metrics and the
+  # OpenAI-compatible text endpoints.
+  stories260K:
+    repo: ggml-org-dev/test-model-stories260K
+    revision: 0724641ef52d46f564590e6121ceaa22dc97e5d0
+    file: stories260K-f32.gguf
+    sha256: 270cba1bd5109f42d03350f60406024560464db173c0e387d91f0426d3bd256d
+    size: 1185376
