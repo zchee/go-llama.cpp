@@ -1,0 +1,40 @@
+data: {"model":"*","event":"models_reload"}
+
+data: {"model":"stories260K-f32","event":"model_memory","data":{"status":"measured","min":{"n_ctx":512,"devices":[{"kind":"device","name":"MTL0","model":0,"context":0,"compute":0,"total":137438953472,"free":137438478336},{"kind":"host","name":"Host","model":1171200,"context":327680,"compute":4759552}]},"max":{"n_ctx":512,"devices":[{"kind":"device","name":"MTL0","model":0,"context":0,"compute":0,"total":137438953472,"free":137438478336},{"kind":"host","name":"Host","model":1171200,"context":327680,"compute":4759552}]},"effective":null}}
+
+data: {"model":"stories260K-f32","event":"model_status","data":{"status":"loading"}}
+
+data: {"model":"stories260K-f32","event":"status_change","data":{"status":"loading","progress":{"stages":["text_model"],"current":"text_model","value":0.0}}}
+
+data: {"model":"stories260K-f32","event":"status_change","data":{"status":"loading","progress":{"stages":["text_model"],"current":"text_model","value":1.0}}}
+
+data: {"model":"stories260K-f32","event":"status_change","data":{"status":"loaded","info":{"id":"stories260K-f32","aliases":["stories260K-f32"],"tags":[],"object":"model","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"created":1795712982,"owned_by":"llamacpp","meta":{"vocab_type":1,"n_vocab":512,"n_ctx":512,"n_ctx_train":2048,"n_embd":64,"n_params":292800,"size":1171200,"ftype":"(guessed) all F32"}},"memory":{"n_ctx":512,"devices":[{"kind":"device","name":"MTL0","model":0,"context":0,"compute":0,"total":137438953472,"free":137438478336},{"kind":"host","name":"Host","model":1171200,"context":327680,"compute":2254880}]}}}
+
+data: {"model":"stories260K-f32","event":"status_change","data":{"status":"sleeping"}}
+
+data: {"model":"stories260K-f32","event":"status_change","data":{"status":"unloaded","exit_code":0}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"model_status","data":{"status":"downloading"}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":0,"total":0}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":0,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":14507,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":50130,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":116128,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":263584,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":607648,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":1185376,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_finished"}
+
+data: {"model":"*","event":"models_reload"}
+
+data: {"model":"ggml-org-dev/test-model-stories260K:F32","event":"model_remove"}
+

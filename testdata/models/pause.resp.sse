@@ -1,0 +1,12 @@
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"model_status","data":{"status":"downloading"}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":0,"total":0}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":0,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_progress","data":{"progress":{"https://huggingface.co/ggml-org-dev/test-model-stories260K/resolve/0724641ef52d46f564590e6121ceaa22dc97e5d0/stories260K-f32.gguf":{"done":0,"total":1185376}}}}
+
+data: {"model":"ggml-org-dev/test-model-stories260K","event":"download_failed","data":{"stopped":true}}
+
+data: {"model":"*","event":"models_reload"}
+

@@ -1,0 +1,8 @@
+data: {"model":"stories260K-f32","event":"model_memory","data":{"status":"failed","min":null,"max":null,"effective":null}}
+
+data: {"model":"stories260K-f32","event":"model_status","data":{"status":"loading"}}
+
+data: {"model":"stories260K-f32","event":"status_change","data":{"status":"loading","progress":{"stages":["text_model"],"current":"text_model","value":0.0}}}
+
+data: {"model":"stories260K-f32","event":"status_change","data":{"status":"unloaded","exit_code":1}}
+

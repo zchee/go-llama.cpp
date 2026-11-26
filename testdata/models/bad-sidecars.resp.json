@@ -1,0 +1,1 @@
+{"error":{"code":400,"message":"unknown sidecar 'unknown', expected one of mmproj, mtp, dflash, eagle3, dspark","type":"invalid_request_error"}}

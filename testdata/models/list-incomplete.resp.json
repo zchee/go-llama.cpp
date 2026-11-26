@@ -1,0 +1,1 @@
+{"data":[{"id":"ggml-org-dev/test-model-stories260K","aliases":[],"tags":[],"object":"model","owned_by":"llamacpp","created":1795713165,"status":{"value":"incomplete","args":[]},"architecture":{"input_modalities":["text"],"output_modalities":["text"]},"source":"cache","can_remove":true,"sidecars":[]}],"object":"list"}
