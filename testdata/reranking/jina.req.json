@@ -1,0 +1,1 @@
+{"model":"ranking-model","query":"Which city is the capital of France?","documents":["Paris is the capital of France.",{"text":["Apples are ","a fruit."]}],"top_n":1}

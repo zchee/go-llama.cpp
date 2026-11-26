@@ -1,0 +1,1 @@
+{"error":{"code":400,"message":"multimodal rerank input requires --mmproj","type":"invalid_request_error"}}
