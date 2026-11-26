@@ -108,11 +108,6 @@ func (c *Client) TTS(ctx context.Context, req *TTSRequest, opts ...RequestOption
 	return &Audio{Body: resp.Body, ContentType: resp.Header.Get("Content-Type"), Format: AudioFormat(format)}, nil
 }
 
-// ttsSendRequest returns the request to send and the reference file to upload. With both an uploaded
-// reference and RawPrompt set, the request is sent as JSON carrying the reference in SpeakerRefB64, because
-// a multipart form cannot carry the boolean: the server reads a form raw_prompt field as a string and
-// silently falls back to false. The uploaded bytes replace any SpeakerRefB64 value, keeping the documented
-// precedence.
 func ttsSendRequest(req *TTSRequest) (*TTSRequest, *SpeakerRef) {
 	ref := req.SpeakerRef
 	if ref == nil || req.RawPrompt == nil {

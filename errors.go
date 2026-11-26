@@ -126,7 +126,6 @@ func boundedErrorBody(raw []byte) []byte {
 	return raw
 }
 
-// newAPIError builds an APIError from an error object.
 func newAPIError(status int, obj *errorObject, raw []byte, header http.Header) *APIError {
 	return &APIError{
 		StatusCode:    status,

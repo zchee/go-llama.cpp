@@ -642,7 +642,6 @@ func (t LogitBiasTarget) Token() (Token, bool) { return t.token, !t.isText }
 // Text returns the string of a text target.
 func (t LogitBiasTarget) Text() (string, bool) { return t.text, t.isText }
 
-// key returns the object member name of the target.
 func (t LogitBiasTarget) key() string {
 	if t.isText {
 		return t.text
