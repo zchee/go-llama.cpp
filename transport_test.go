@@ -638,17 +638,21 @@ func TestCallConnectionFailure(t *testing.T) {
 
 	tests := map[string]struct {
 		method       string
+		path         string
 		opts         []RequestOption
 		wantAttempts string
 	}{
-		"retry: GET is retried up to the limit": {method: http.MethodGet, wantAttempts: "attempts=3"},
-		"no retry: POST is sent once":           {method: http.MethodPost, wantAttempts: "attempts=1"},
-		"no retry: WithNoRetry":                 {method: http.MethodGet, opts: []RequestOption{WithNoRetry()}, wantAttempts: "attempts=1"},
+		"retry: GET is retried up to the limit": {method: http.MethodGet, path: "/props", wantAttempts: "attempts=3"},
+		"no retry: POST is sent once":           {method: http.MethodPost, path: "/props", wantAttempts: "attempts=1"},
+		"no retry: WithNoRetry":                 {method: http.MethodGet, path: "/props", opts: []RequestOption{WithNoRetry()}, wantAttempts: "attempts=1"},
+		"retry: busy slot option":               {method: http.MethodGet, path: "/slots", opts: []RequestOption{WithFailOnNoSlot()}, wantAttempts: "attempts=3"},
+		"retry: busy slot query option":         {method: http.MethodGet, path: "/slots", opts: []RequestOption{WithQuery("fail_on_no_slot", "1")}, wantAttempts: "attempts=3"},
+		"retry: busy slot query in path":        {method: http.MethodGet, path: "/slots?fail_on_no_slot=1", wantAttempts: "attempts=3"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			logs.Reset()
-			_, err := Call[map[string]jsontext.Value](t.Context(), c, tt.method, "/props", map[string]int{"n": 1}, tt.opts...)
+			_, err := Call[map[string]jsontext.Value](t.Context(), c, tt.method, tt.path, map[string]int{"n": 1}, tt.opts...)
 			if err == nil {
 				t.Fatalf("Call to a closed port succeeded")
 			}
@@ -663,7 +667,8 @@ func TestCallConnectionFailure(t *testing.T) {
 			if !strings.Contains(logs.String(), tt.wantAttempts) {
 				t.Errorf("log does not record %s:\n%s", tt.wantAttempts, logs.String())
 			}
-			if !strings.Contains(logs.String(), "path=/props") || !strings.Contains(logs.String(), "method="+tt.method) {
+			path, _, _ := strings.Cut(tt.path, "?")
+			if !strings.Contains(logs.String(), "path="+path) || !strings.Contains(logs.String(), "method="+tt.method) {
 				t.Errorf("log lacks method or path:\n%s", logs.String())
 			}
 		})

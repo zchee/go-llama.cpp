@@ -154,23 +154,35 @@ func TestSlotsCachePersistence(t *testing.T) {
 }
 
 func TestSlotsBusyDoesNotRetry(t *testing.T) {
-	c, obs := slotsPreset.server(t).Client(t)
-	received := false
-	for _, err := range c.CompletionStream(t.Context(), &llama.CompletionRequest{Prompt: llama.TextPrompt("Once upon a time"), NPredict: new(512), IgnoreEOS: new(true)}) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		received = true
-		obs.Reset()
-		_, err = c.Slots(t.Context(), llama.WithFailOnNoSlot())
-		e, ok := errors.AsType[*llama.APIError](err)
-		if !ok || e.StatusCode != http.StatusServiceUnavailable || len(obs.Exchanges()) != 1 {
-			t.Fatalf("busy slots should return one HTTP 503, got %v; exchanges %+v", err, obs.Exchanges())
-		}
-		break
+	c, obs := slotsPreset.server(t).Client(t, llama.WithRetry(llama.RetryPolicy{MaxAttempts: 3}))
+	tests := map[string]struct {
+		path string
+		opts []llama.RequestOption
+	}{
+		"error: slots option": {opts: []llama.RequestOption{llama.WithFailOnNoSlot()}},
+		"error: query option": {opts: []llama.RequestOption{llama.WithQuery("fail_on_no_slot", "1")}},
+		"error: path query":   {path: "/slots?fail_on_no_slot=1"},
 	}
-	if !received {
-		t.Fatal("completion stream yielded no event")
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, err := range c.CompletionStream(t.Context(), &llama.CompletionRequest{Prompt: llama.TextPrompt("Once upon a time"), NPredict: new(512), IgnoreEOS: new(true)}) {
+				if err != nil {
+					t.Fatal(err)
+				}
+				obs.Reset()
+				if tt.path == "" {
+					_, err = c.Slots(t.Context(), tt.opts...)
+				} else {
+					_, err = llama.Call[[]llama.Slot](t.Context(), c, http.MethodGet, tt.path, nil)
+				}
+				e, ok := errors.AsType[*llama.APIError](err)
+				if !ok || e.StatusCode != http.StatusServiceUnavailable || len(obs.Exchanges()) != 1 {
+					t.Errorf("busy slots should return one HTTP 503, got %v; exchanges %+v", err, obs.Exchanges())
+				}
+				return
+			}
+			t.Fatal("completion stream yielded no event")
+		})
 	}
 }
 

@@ -206,6 +206,13 @@ func (c *Client) attempt(ctx context.Context, req *http.Request, n int) (*http.R
 	}
 	apiErr := ReadAPIError(resp)
 	if retryableStatus(apiErr) {
+		// The slots handler uses the same unavailable_error when asked not to wait for a free slot.
+		if req.Method == http.MethodGet && req.URL.Path == c.base.Path+"/slots" {
+			values := req.URL.Query()["fail_on_no_slot"]
+			if len(values) > 0 && values[len(values)-1] != "" {
+				return nil, apiErr
+			}
+		}
 		return nil, &retryableError{err: apiErr, after: retryAfter(resp.Header)}
 	}
 	return nil, apiErr
