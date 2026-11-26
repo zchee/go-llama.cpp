@@ -15,33 +15,32 @@
 package llama
 
 import (
-	"bytes"
-	"cmp"
 	"context"
 	"encoding/json/jsontext"
-	json "encoding/json/v2"
 	"errors"
-	"maps"
-	"mime"
-	"mime/multipart"
-	"net/textproto"
-	"slices"
-	"strings"
+	"net/http"
+
+	"github.com/zchee/go-llama.cpp/internal/speech"
 )
 
 // TTSParams holds the synthesis options shared by the native and OpenAI speech endpoints.
 type TTSParams struct {
-	// Input is the text to speak. Prompt is its alias when Input is absent.
-	Input string `json:"input,omitzero"`
+	// Input is the text to speak. Prompt is its alias when Input is nil; a present but empty Input is
+	// rejected by the server even when Prompt is set, so presence is preserved.
+	Input *string `json:"input,omitzero"`
 	// Prompt supplies the text when Input is absent.
 	Prompt *string `json:"prompt,omitzero"`
 	// Model selects the model in router mode.
 	Model *string `json:"model,omitzero"`
 	// Lang selects the language on models with language controls.
 	Lang *string `json:"lang,omitzero"`
-	// RawPrompt bypasses the model's text preprocessing when sent as JSON.
+	// RawPrompt sends the text to the model as is (for example phonemes), skipping the model's "tts" chat
+	// template.
 	RawPrompt *bool `json:"raw_prompt,omitzero"`
-	// SpeakerRef is uploaded as a multipart file and takes precedence over SpeakerRefB64.
+	// SpeakerRef is uploaded as a multipart file and takes precedence over SpeakerRefB64. When RawPrompt is
+	// also set, the request is sent as JSON carrying the reference bytes in SpeakerRefB64 instead: the
+	// server's multipart parser restores the types of its numeric and stream fields but leaves raw_prompt a
+	// string, which the handler silently reads as false.
 	SpeakerRef *SpeakerRef `json:"-"`
 	// SpeakerRefB64 holds reference audio bytes; JSON encodes them as base64.
 	SpeakerRefB64 []byte `json:"speaker_ref_b64,omitzero"`
@@ -69,7 +68,9 @@ type TTSParams struct {
 	NPredict *int `json:"n_predict,omitzero"`
 	// MaxTokens is an alias for NPredict.
 	MaxTokens *int `json:"max_tokens,omitzero"`
-	// Stream requests an audio byte stream, not server-sent events.
+	// Stream requests an audio byte stream, not server-sent events. A generation that fails after the
+	// response status has been sent ends the stream with a clean EOF, which the client cannot tell from a
+	// complete stream.
 	Stream *bool `json:"stream,omitzero"`
 	// ResponseFormat selects the encoding; the meaning of pcm depends on the endpoint.
 	ResponseFormat *string `json:"response_format,omitzero"`
@@ -89,7 +90,40 @@ func (c *Client) TTS(ctx context.Context, req *TTSRequest, opts ...RequestOption
 	if req == nil {
 		return nil, errors.New("llama: nil TTS request")
 	}
-	return AudioCall(ctx, c, "/tts", req, req.SpeakerRef, opts...)
+	send, ref := ttsSendRequest(req)
+	var body any = send
+	if ref != nil {
+		data, contentType, err := speech.Multipart(send, ref.Data, ref.Filename, ref.ContentType)
+		if err != nil {
+			return nil, c.RedactError(err)
+		}
+		body = &Body{Data: data, ContentType: contentType}
+	}
+	resp, err := CallRaw(ctx, c, http.MethodPost, "/tts", body, opts...)
+	if err != nil {
+		return nil, err
+	}
+	format, err := speech.ResponseFormat(resp)
+	if err != nil {
+		return nil, c.RedactError(err)
+	}
+	return &Audio{Body: resp.Body, ContentType: resp.Header.Get("Content-Type"), Format: AudioFormat(format)}, nil
+}
+
+// ttsSendRequest returns the request to send and the reference file to upload. With both an uploaded
+// reference and RawPrompt set, the request is sent as JSON carrying the reference in SpeakerRefB64, because
+// a multipart form cannot carry the boolean: the server reads a form raw_prompt field as a string and
+// silently falls back to false. The uploaded bytes replace any SpeakerRefB64 value, keeping the documented
+// precedence.
+func ttsSendRequest(req *TTSRequest) (*TTSRequest, *SpeakerRef) {
+	ref := req.SpeakerRef
+	if ref == nil || req.RawPrompt == nil {
+		return req, ref
+	}
+	r := *req
+	r.SpeakerRefB64 = ref.Data
+	r.SpeakerRef = nil
+	return &r, nil
 }
 
 // SpeakerRef holds a reference audio file in memory so an HTTP retry can resend it.
@@ -100,49 +134,4 @@ type SpeakerRef struct {
 	Filename string
 	// ContentType defaults to application/octet-stream.
 	ContentType string
-}
-
-func (r *SpeakerRef) ttsMultipart(request any) (*Body, error) {
-	data, err := json.Marshal(request, jsonOptions)
-	if err != nil {
-		return nil, err
-	}
-	var fields map[string]jsontext.Value
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	for _, k := range slices.Sorted(maps.Keys(fields)) {
-		v := fields[k]
-		text := string(v)
-		if v.Kind() == '"' {
-			if err := json.Unmarshal(v, &text); err != nil {
-				return nil, err
-			}
-		}
-		if strings.ContainsAny(k, "\r\n") {
-			return nil, errors.New("llama: invalid speech form field name")
-		}
-		if err := w.WriteField(k, text); err != nil {
-			return nil, err
-		}
-	}
-	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": "speaker_ref", "filename": cmp.Or(r.Filename, "reference.wav")}))
-	if strings.ContainsAny(r.ContentType, "\r\n") {
-		return nil, errors.New("llama: invalid speaker reference content type")
-	}
-	header.Set("Content-Type", cmp.Or(r.ContentType, "application/octet-stream"))
-	part, err := w.CreatePart(header)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := part.Write(r.Data); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return &Body{ContentType: w.FormDataContentType(), Data: buf.Bytes()}, nil
 }

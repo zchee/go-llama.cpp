@@ -72,14 +72,14 @@ func TestEndpointExtra(t *testing.T) {
 		return r == nil, err
 	}
 	tts := func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
-		r, err := c.TTS(ctx, &llama.TTSRequest{Input: "Once", Extra: e})
+		r, err := c.TTS(ctx, &llama.TTSRequest{Input: new("Once"), Extra: e})
 		if r != nil {
 			r.Body.Close()
 		}
 		return r == nil, err
 	}
 	speech := func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
-		r, err := openai.NewClient(c).Speech(ctx, &openai.SpeechRequest{Input: "Once", Extra: e})
+		r, err := openai.NewClient(c).Speech(ctx, &openai.SpeechRequest{Input: new("Once"), Extra: e})
 		if r != nil {
 			r.Body.Close()
 		}

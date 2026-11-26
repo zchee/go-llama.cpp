@@ -83,6 +83,93 @@ func TestSpeechWire(t *testing.T) {
 	}
 }
 
+func TestSpeechVoiceNull(t *testing.T) {
+	tests := map[string]struct {
+		fixture   string
+		wantVoice string
+	}{
+		"success: null voice decodes as absent":    {fixture: "voice_null", wantVoice: ""},
+		"success: null voice id drops only the id": {fixture: "voice_id_null", wantVoice: `{}`},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			prefix := "testdata/speech/" + tc.fixture
+			data := jsontest.ReadFile(t, prefix+".req.json")
+			var parsed SpeechRequest
+			if err := json.Unmarshal(data, &parsed); err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(&parsed, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var members map[string]jsontext.Value
+			if err := json.Unmarshal(encoded, &members); err != nil {
+				t.Fatal(err)
+			}
+			voice, ok := members["voice"]
+			if tc.wantVoice == "" {
+				if parsed.Voice.Name != nil || parsed.Voice.Object != nil || ok {
+					t.Fatalf("null voice decoded as %+v and re-encoded as %s", parsed.Voice, voice)
+				}
+			} else if !ok || string(voice) != tc.wantVoice {
+				t.Fatalf("voice re-encoded as %s (present %t), want %s", voice, ok, tc.wantVoice)
+			}
+			audio := jsontest.ReadFile(t, prefix+".resp.bin")
+			if len(audio) <= 44 || string(audio[:4]) != "RIFF" || string(audio[8:12]) != "WAVE" {
+				t.Fatal("the server did not answer the recorded request with WAV audio")
+			}
+		})
+	}
+}
+
+func TestSpeechSendRequest(t *testing.T) {
+	ref := &llama.SpeakerRef{Data: []byte("reference bytes"), Filename: "reference.wav", ContentType: "audio/wav"}
+	object := SpeechVoice{Object: &SpeechVoiceID{ID: new("demo")}}
+	tests := map[string]struct {
+		req       *SpeechRequest
+		wantJSON  bool
+		wantVoice string
+	}{
+		"success: object voice with uploaded reference is reduced to its id": {req: &SpeechRequest{Input: new("Hi"), Voice: object, SpeakerRef: ref}, wantVoice: `"demo"`},
+		"success: named voice with uploaded reference is kept":               {req: &SpeechRequest{Input: new("Hi"), Voice: SpeechVoice{Name: new("demo")}, SpeakerRef: ref}, wantVoice: `"demo"`},
+		"success: raw prompt with uploaded reference keeps the object voice": {req: &SpeechRequest{Input: new("Hi"), RawPrompt: new(true), Voice: object, SpeakerRef: ref}, wantJSON: true, wantVoice: `{"id":"demo"}`},
+		"success: no reference leaves the request alone":                     {req: &SpeechRequest{Input: new("Hi"), Voice: object}, wantVoice: `{"id":"demo"}`},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			origVoice := tc.req.Voice
+			send, sendRef := speechSendRequest(tc.req)
+			switch {
+			case tc.req.SpeakerRef == nil:
+				if send != tc.req || sendRef != nil {
+					t.Fatal("a request without a reference was replaced")
+				}
+			case tc.wantJSON:
+				if sendRef != nil || send.SpeakerRef != nil || !bytes.Equal(send.SpeakerRefB64, ref.Data) {
+					t.Fatalf("reference = %v, SpeakerRefB64 = %q; want the reference bytes sent as JSON", sendRef, send.SpeakerRefB64)
+				}
+			case sendRef != ref:
+				t.Fatal("the uploaded reference was dropped")
+			}
+			if tc.req.Voice != origVoice || (tc.req.SpeakerRef != nil && tc.req.SpeakerRef != ref) {
+				t.Fatal("the caller's request was modified")
+			}
+			data, err := json.Marshal(send, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var members map[string]jsontext.Value
+			if err := json.Unmarshal(data, &members); err != nil {
+				t.Fatal(err)
+			}
+			if string(members["voice"]) != tc.wantVoice {
+				t.Fatalf("outgoing voice member = %s, want %s", members["voice"], tc.wantVoice)
+			}
+		})
+	}
+}
+
 func FuzzSpeechVoice(f *testing.F) {
 	for _, fixture := range []string{"pcm", "wav"} {
 		var raw map[string]jsontext.Value
@@ -123,7 +210,7 @@ func ExampleClient_Speech() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	audio, err := NewClient(c).Speech(context.Background(), &SpeechRequest{Input: "Hello", ResponseFormat: new("wav")})
+	audio, err := NewClient(c).Speech(context.Background(), &SpeechRequest{Input: new("Hello"), ResponseFormat: new("wav")})
 	if err != nil {
 		log.Fatal(err)
 	}

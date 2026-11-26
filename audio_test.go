@@ -15,9 +15,12 @@
 package llama
 
 import (
+	"net/http"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/go-llama.cpp/internal/speech"
 )
 
 func TestAudioFormat(t *testing.T) {
@@ -38,11 +41,11 @@ func TestAudioFormat(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := audioFormat(tc.header)
+			got, err := speech.ResponseFormat(&http.Response{Header: http.Header{"Content-Type": {tc.header}}, Body: http.NoBody})
 			if (err != nil) != tc.wantError {
 				t.Fatalf("parsing %q: %v", tc.header, err)
 			}
-			if diff := gocmp.Diff(tc.want, got); diff != "" {
+			if diff := gocmp.Diff(tc.want, AudioFormat(got)); diff != "" {
 				t.Fatal(diff)
 			}
 		})

@@ -23,14 +23,14 @@ import (
 
 var _ = registerContracts(map[string]contractCase{
 	"POST /tts": {server: presetSpeech, call: func(t *testing.T, c *llama.Client) error {
-		a, err := c.TTS(t.Context(), &llama.TTSRequest{Input: "Hi", NPredict: new(1)})
+		a, err := c.TTS(t.Context(), &llama.TTSRequest{Input: new("Hi"), NPredict: new(1)})
 		if err != nil {
 			return err
 		}
 		return a.Body.Close()
 	}},
 	"POST /v1/audio/speech": {server: presetSpeech, call: func(t *testing.T, c *llama.Client) error {
-		a, err := openai.NewClient(c).Speech(t.Context(), &openai.SpeechRequest{Input: "Hi", NPredict: new(1)})
+		a, err := openai.NewClient(c).Speech(t.Context(), &openai.SpeechRequest{Input: new("Hi"), NPredict: new(1)})
 		if err != nil {
 			return err
 		}

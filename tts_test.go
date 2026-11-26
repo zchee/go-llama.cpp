@@ -17,19 +17,24 @@ package llama
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"io"
 	"log"
 	"math"
+	"mime"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"github.com/zchee/go-llama.cpp/internal/jsontest"
+	"github.com/zchee/go-llama.cpp/internal/speech"
 )
 
 func TestTTSWire(t *testing.T) {
@@ -45,10 +50,12 @@ func TestTTSWire(t *testing.T) {
 		"success: WAV":           {"wav", "", 0},
 		"success: streaming WAV": {"stream_wav", "", 0},
 		"success: streaming float PCM with prompt and frame aliases": {"pcm", "", 4},
-		"success: signed PCM":          {"pcm16", "", 2},
-		"error: undecodable reference": {"reference", "speaker_ref", 0},
-		"error: speed unsupported":     {"speed", "speed", 0},
-		"error: loudness unsupported":  {"loudness", "loudness", 0},
+		"success: signed PCM":                          {"pcm16", "", 2},
+		"success: raw prompt with base64 reference":    {"raw_b64", "", 0},
+		"error: empty input is not replaced by prompt": {"empty_input", "input", 0},
+		"error: undecodable reference":                 {"reference", "speaker_ref", 0},
+		"error: speed unsupported":                     {"speed", "speed", 0},
+		"error: loudness unsupported":                  {"loudness", "loudness", 0},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -105,18 +112,22 @@ func TestTTSWire(t *testing.T) {
 func TestTTSMultipartReplay(t *testing.T) {
 	wav := jsontest.ReadFile(t, "testdata/tts/wav.resp.bin")
 	recorded := jsontest.ReadFile(t, "testdata/tts/multipart.req.bin")
+	response := jsontest.ReadFile(t, "testdata/tts/multipart.resp.bin")
+	if len(response) <= 44 || string(response[:4]) != "RIFF" || string(response[8:12]) != "WAVE" {
+		t.Fatal("the server did not answer the recorded multipart request with WAV audio")
+	}
 	c, err := New("http://localhost")
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &TTSRequest{Input: "Hi", NPredict: new(1), Seed: new(int64(42)), ResponseFormat: new("wav"), SpeakerRef: &SpeakerRef{Data: wav, Filename: "reference.wav", ContentType: "audio/wav"}}
-	form, err := r.SpeakerRef.ttsMultipart(r)
+	r := &TTSRequest{Input: new("Hi"), NPredict: new(1), Seed: new(int64(42)), ResponseFormat: new("wav"), SpeakerRef: &SpeakerRef{Data: wav, Filename: "reference.wav", ContentType: "audio/wav"}}
+	data, contentType, err := speech.Multipart(r, wav, r.SpeakerRef.Filename, r.SpeakerRef.ContentType)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tests := map[string]struct{ body *Body }{
 		"success: recorded form":  {&Body{ContentType: "multipart/form-data; boundary=speech-reference", Data: recorded}},
-		"success: generated form": {form},
+		"success: generated form": {&Body{ContentType: contentType, Data: data}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -125,18 +136,33 @@ func TestTTSMultipartReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer req.Body.Close()
-			replay, err := req.GetBody()
+			original, err := io.ReadAll(req.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer replay.Close()
-			data, err := io.ReadAll(replay)
+			clone, err := requestForAttempt(req, 2)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Equal(data, tc.body.Data) {
-				t.Fatal("replayed multipart differs from original body")
+			defer clone.Body.Close()
+			data, err := io.ReadAll(clone.Body)
+			if err != nil {
+				t.Fatal(err)
 			}
+			if !bytes.Equal(data, original) {
+				t.Fatal("the retried request differs from the original body")
+			}
+			if got, want := clone.Header.Get("Content-Type"), req.Header.Get("Content-Type"); got != want {
+				t.Fatalf("retried Content-Type = %q, want %q", got, want)
+			}
+			_, params, err := mime.ParseMediaType(clone.Header.Get("Content-Type"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if boundary := params["boundary"]; boundary == "" || !bytes.Contains(data, []byte("--"+boundary+"\r\n")) {
+				t.Fatalf("the retried body does not use the header boundary %q", boundary)
+			}
+			req.Body = io.NopCloser(bytes.NewReader(original))
 			if err := req.ParseMultipartForm(1 << 20); err != nil {
 				t.Fatal(err)
 			}
@@ -165,12 +191,60 @@ func TestTTSMultipartReplay(t *testing.T) {
 	}
 }
 
+func TestTTSSendRequest(t *testing.T) {
+	ref := &SpeakerRef{Data: []byte("reference bytes"), Filename: "reference.wav", ContentType: "audio/wav"}
+	tests := map[string]struct {
+		req      *TTSRequest
+		wantJSON bool
+	}{
+		"success: raw prompt with uploaded reference switches to JSON":        {req: &TTSRequest{Input: new("Hi"), RawPrompt: new(true), SpeakerRef: ref, SpeakerRefB64: []byte("stale")}, wantJSON: true},
+		"success: explicit false raw prompt with uploaded reference too":      {req: &TTSRequest{Input: new("Hi"), RawPrompt: new(false), SpeakerRef: ref}, wantJSON: true},
+		"success: uploaded reference without raw prompt stays multipart":      {req: &TTSRequest{Input: new("Hi"), SpeakerRef: ref}},
+		"success: raw prompt without uploaded reference stays a JSON request": {req: &TTSRequest{Input: new("Hi"), RawPrompt: new(true)}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			origB64 := string(tc.req.SpeakerRefB64)
+			send, sendRef := ttsSendRequest(tc.req)
+			if !tc.wantJSON {
+				if send != tc.req || sendRef != tc.req.SpeakerRef {
+					t.Fatal("the request or its reference was replaced without need")
+				}
+				return
+			}
+			if sendRef != nil {
+				t.Fatal("a reference is still uploaded as multipart")
+			}
+			if send.SpeakerRef != nil || !bytes.Equal(send.SpeakerRefB64, ref.Data) {
+				t.Fatalf("SpeakerRefB64 = %q, want the uploaded reference bytes", send.SpeakerRefB64)
+			}
+			if tc.req.SpeakerRef != ref || string(tc.req.SpeakerRefB64) != origB64 {
+				t.Fatal("the caller's request was modified")
+			}
+			data, err := json.Marshal(send, jsonOptions)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var members map[string]jsontext.Value
+			if err := json.Unmarshal(data, &members); err != nil {
+				t.Fatal(err)
+			}
+			if want := strconv.FormatBool(*tc.req.RawPrompt); string(members["raw_prompt"]) != want {
+				t.Fatalf("raw_prompt member = %s, want %s", members["raw_prompt"], want)
+			}
+			if string(members["speaker_ref_b64"]) != strconv.Quote(base64.StdEncoding.EncodeToString(ref.Data)) {
+				t.Fatalf("speaker_ref_b64 member = %s, want the reference base64-encoded", members["speaker_ref_b64"])
+			}
+		})
+	}
+}
+
 func ExampleClient_TTS() {
 	c, err := New("http://localhost:8080")
 	if err != nil {
 		log.Fatal(err)
 	}
-	audio, err := c.TTS(context.Background(), &TTSRequest{Input: "Hello"})
+	audio, err := c.TTS(context.Background(), &TTSRequest{Input: new("Hello")})
 	if err != nil {
 		log.Fatal(err)
 	}
