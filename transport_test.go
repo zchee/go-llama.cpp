@@ -387,6 +387,39 @@ func TestRedirectPolicyStopsReadinessPolling(t *testing.T) {
 	}
 }
 
+func TestRetryAfterRedirect(t *testing.T) {
+	c, err := New("http://localhost/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots, err := c.NewRequest(t.Context(), http.MethodGet, "/slots?fail_on_no_slot=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := c.NewRequest(t.Context(), http.MethodPost, "/other", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]struct {
+		original, final *http.Request
+		retry           bool
+	}{
+		"no retry: redirected to slots":       {other, slots, false},
+		"retry: redirected from slots":        {slots, other, true},
+		"no retry: final request unavailable": {slots, nil, false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: http.StatusServiceUnavailable, Request: tt.final,
+				Body: io.NopCloser(strings.NewReader(`{"error":{"type":"unavailable_error"}}`))}
+			err := c.classifyResponse(tt.original, resp)
+			if _, got := errors.AsType[*retryableError](err); got != tt.retry {
+				t.Errorf("retryable = %t for %v, want %t", got, err, tt.retry)
+			}
+		})
+	}
+}
+
 func TestRetryableStatus(t *testing.T) {
 	tests := map[string]struct {
 		err  *APIError

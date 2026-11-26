@@ -16,6 +16,7 @@ package llama
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
@@ -201,18 +202,24 @@ func (c *Client) attempt(ctx context.Context, req *http.Request, n int) (*http.R
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return resp, nil
 	}
+	return nil, c.classifyResponse(req, resp)
+}
+
+func (c *Client) classifyResponse(req *http.Request, resp *http.Response) error {
 	apiErr := ReadAPIError(resp)
 	if retryableStatus(apiErr) {
+		// A redirect can change the method, path and query that the slots handler received.
+		req = cmp.Or(resp.Request, req)
 		// The slots handler uses the same unavailable_error when asked not to wait for a free slot.
 		if req.Method == http.MethodGet && req.URL.Path == c.base.Path+"/slots" {
 			values := req.URL.Query()["fail_on_no_slot"]
 			if len(values) > 0 && values[len(values)-1] != "" {
-				return nil, apiErr
+				return apiErr
 			}
 		}
-		return nil, &retryableError{err: apiErr, after: retryAfter(resp.Header)}
+		return &retryableError{err: apiErr, after: retryAfter(resp.Header)}
 	}
-	return nil, apiErr
+	return apiErr
 }
 
 // requestForAttempt returns the request to send as attempt n. The first attempt sends req itself; later attempts
