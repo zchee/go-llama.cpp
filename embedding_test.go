@@ -41,15 +41,16 @@ func TestEmbeddingWire(t *testing.T) {
 		code    int
 		typ     ErrorType
 	}{
-		"success: legacy":          {fixture: "embedding/legacy", vectors: []int{1}},
-		"success: pooled":          {fixture: "embeddings/pooled", vectors: []int{1, 1}},
-		"success: per token":       {fixture: "embeddings/per_token", vectors: []int{3}},
-		"success: token batch":     {fixture: "embeddings/batch", vectors: []int{1, 1, 1}},
-		"success: OpenAI fallback": {fixture: "embeddings/openai_legacy", vectors: []int{1}},
-		"success: input wins":      {fixture: "embeddings/input_precedence", vectors: []int{1}},
-		"error: empty batch":       {fixture: "embeddings/empty", code: 400, typ: ErrorTypeInvalidRequest},
-		"error: encoding":          {fixture: "embeddings/invalid_encoding", code: 400, typ: ErrorTypeInvalidRequest},
-		"error: legacy media":      {fixture: "embedding/multimodal_refused", code: 500, typ: ErrorTypeServer},
+		"success: legacy":              {fixture: "embedding/legacy", vectors: []int{1}},
+		"success: pooled":              {fixture: "embeddings/pooled", vectors: []int{1, 1}},
+		"success: per token":           {fixture: "embeddings/per_token", vectors: []int{3}},
+		"success: token batch":         {fixture: "embeddings/batch", vectors: []int{1, 1, 1}},
+		"success: OpenAI fallback":     {fixture: "embeddings/openai_legacy", vectors: []int{1}},
+		"success: input wins":          {fixture: "embeddings/input_precedence", vectors: []int{1}},
+		"success: mixed decimal token": {fixture: "embeddings/mixed_decimal", vectors: []int{1}},
+		"error: empty batch":           {fixture: "embeddings/empty", code: 400, typ: ErrorTypeInvalidRequest},
+		"error: encoding":              {fixture: "embeddings/invalid_encoding", code: 400, typ: ErrorTypeInvalidRequest},
+		"error: legacy media":          {fixture: "embedding/multimodal_refused", code: 500, typ: ErrorTypeServer},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -117,7 +118,7 @@ func TestEmbeddingNewRequest(t *testing.T) {
 			body: &EmbeddingRequest{Input: EmbeddingBatch(
 				EmbeddingTokens(101, 7592, 102),
 				EmbeddingMixed(TokenPart(101), TextPart("world"), TokenPart(102)),
-				EmbeddingObject(EmbeddingPromptObject{PromptString: BatchPrompt(TextPrompt("hello"), TextPrompt("world"))}),
+				EmbeddingObject(EmbeddingPromptObject{PromptString: TokenizeParts(TextPart("hello"), TextPart("world"))}),
 			)},
 		},
 	}
@@ -147,6 +148,56 @@ func TestEmbeddingNewRequest(t *testing.T) {
 				t.Errorf("request body = %s, want %s", got, want)
 			}
 		})
+	}
+}
+
+func TestEmbeddingRequestRejectsInvalidInput(t *testing.T) {
+	tests := map[string]struct {
+		fixture string
+		body    string
+	}{
+		"error: null input takes precedence":        {fixture: "null_input"},
+		"error: null legacy content":                {body: `{"content":null}`},
+		"error: null media selects multimodal":      {fixture: "null_media"},
+		"error: nested prompt":                      {fixture: "nested_prompt"},
+		"error: floating point token list":          {fixture: "float_only"},
+		"error: no integer spelling in mixed input": {body: `{"input":[7592.0,"world"]}`},
+		"error: mixed numeric list without text":    {body: `{"input":[101,7592.0]}`},
+		"error: non-integral mixed token":           {body: `{"input":[101,7592.0000000000000001,"world"]}`},
+		"error: out of range mixed token":           {body: `{"input":[101,2147483648.0,"world"]}`},
+		"error: array prompt with media":            {body: `{"input":{"prompt_string":[101],"multimodal_data":[]}}`},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			data := []byte(test.body)
+			if test.fixture != "" {
+				data = jsontest.ReadFile(t, "testdata/embeddings/"+test.fixture+".req.json")
+			}
+			if err := json.Unmarshal(data, new(EmbeddingRequest)); err == nil {
+				t.Errorf("decoded invalid input: %s", data)
+			}
+		})
+	}
+}
+
+func TestEmbeddingPromptObjectRejectsInvalidShape(t *testing.T) {
+	tests := map[string]struct{ object EmbeddingPromptObject }{
+		"error: unset prompt":        {EmbeddingPromptObject{}},
+		"error: media requires text": {EmbeddingPromptObject{PromptString: TokenizeParts(TokenPart(101)), MultimodalData: [][]byte{}}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got, err := json.Marshal(EmbeddingObject(test.object)); err == nil {
+				t.Errorf("encoded invalid prompt: %s", got)
+			}
+		})
+	}
+}
+
+func TestEmbeddingVectorBase64Precision(t *testing.T) {
+	v := EmbeddingVectorOf(EmbeddingEncodingBase64, 0.1)
+	if diff := gocmp.Diff([]float64{float64(float32(0.1))}, v.Values()); diff != "" {
+		t.Errorf("base64 values before encoding (-want +got):\n%s", diff)
 	}
 }
 
@@ -180,12 +231,23 @@ func TestEmbeddingVectorOf(t *testing.T) {
 }
 
 func FuzzEmbeddingInput(f *testing.F) {
+	for _, seed := range []string{
+		`[{"content":[{"type":""}]}]`,
+		`{"content":[{"type":"text","text":""},{"type":"image_url","image_url":{"url":null}}]}`,
+		`{"content":[{"type":"text","text":"","x-app":null}]}`,
+		`{"prompt_string":"hello","multimodal_data":[null]}`,
+		`{"prompt_string":"hello","multimodal_data":["AB=="]}`,
+	} {
+		f.Add([]byte(seed))
+	}
 	for _, path := range []string{
 		"testdata/embedding/legacy.req.json",
 		"testdata/embedding/multimodal_refused.req.json",
 		"testdata/embeddings/pooled.req.json",
 		"testdata/embeddings/per_token.req.json",
 		"testdata/embeddings/batch.req.json",
+		"testdata/embeddings/null_media.req.json",
+		"testdata/embeddings/mixed_decimal.req.json",
 		"openai/testdata/embeddings/content.req.json",
 		"openai/testdata/embeddings/multimodal_refused.req.json",
 	} {
@@ -204,6 +266,7 @@ func FuzzEmbeddingInput(f *testing.F) {
 		if err := json.Unmarshal(data, &in); err != nil {
 			return
 		}
+		jsontest.RoundTrip[EmbeddingInput](t, data)
 		first, err := json.Marshal(in, jsonOptions)
 		if err != nil {
 			t.Fatal(err)

@@ -26,7 +26,8 @@ type EmbeddingEncodingFormat string
 const (
 	// EmbeddingEncodingFloat uses a JSON array of numbers.
 	EmbeddingEncodingFloat EmbeddingEncodingFormat = "float"
-	// EmbeddingEncodingBase64 uses a base64 string of little-endian float32 values.
+	// EmbeddingEncodingBase64 uses the server's native float32 bytes. The client assumes a
+	// little-endian server; use EmbeddingEncodingFloat if the server's byte order is unknown.
 	EmbeddingEncodingBase64 EmbeddingEncodingFormat = "base64"
 )
 

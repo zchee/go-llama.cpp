@@ -15,11 +15,16 @@
 package llama
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
 	"slices"
+	"strings"
 )
 
 // EmbeddingInput is text, token ids, mixed text and ids, a prompt or content object, or a batch of inputs.
@@ -34,11 +39,67 @@ type EmbeddingInput struct {
 // EmbeddingPromptObject carries a native prompt with optional base64-encoded media files.
 type EmbeddingPromptObject struct {
 	// PromptString is text, or without media, a list of text and/or token ids.
-	// Use BatchPrompt of TextPrompt values for a list of only text.
-	PromptString   Prompt   `json:"prompt_string"`
-	MultimodalData [][]byte `json:"multimodal_data,omitzero"`
+	// Build it with TokenizeText or TokenizeParts.
+	PromptString   TokenizeContent `json:"prompt_string"`
+	MultimodalData [][]byte        `json:"multimodal_data,omitzero"`
 
 	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+func (o EmbeddingPromptObject) validate() error {
+	if _, text := o.PromptString.Text(); !text && o.MultimodalData != nil {
+		return errors.New("llama: prompt_string must be a string when multimodal_data is present")
+	}
+	return nil
+}
+
+// MarshalJSONTo encodes the prompt object, rejecting nested prompts and non-string media prompts.
+func (o EmbeddingPromptObject) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if err := o.validate(); err != nil {
+		return err
+	}
+	type plain EmbeddingPromptObject
+	return json.MarshalEncode(enc, plain(o))
+}
+
+// UnmarshalJSONFrom decodes one native prompt object without discarding explicit null media.
+func (o *EmbeddingPromptObject) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	var fields map[string]jsontext.Value
+	if err := json.UnmarshalDecode(dec, &fields); err != nil {
+		return err
+	}
+	var out EmbeddingPromptObject
+	if err := json.Unmarshal(fields["prompt_string"], &out.PromptString, embeddingTokenDecoder); err != nil {
+		return err
+	}
+	if media, ok := fields["multimodal_data"]; ok {
+		if media.Kind() != '[' {
+			return errors.New("llama: multimodal_data must be an array of base64 strings")
+		}
+		var files []*string
+		if err := json.Unmarshal(media, &files); err != nil {
+			return err
+		}
+		out.MultimodalData = make([][]byte, len(files))
+		for i, file := range files {
+			if file == nil || strings.ContainsAny(*file, "\r\n") {
+				return fmt.Errorf("llama: multimodal_data[%d] must be a base64 string", i)
+			}
+			data, err := base64.StdEncoding.Strict().DecodeString(*file)
+			if err != nil {
+				return fmt.Errorf("llama: multimodal_data[%d]: %w", i, err)
+			}
+			out.MultimodalData[i] = data
+		}
+	}
+	if err := out.validate(); err != nil {
+		return err
+	}
+	delete(fields, "prompt_string")
+	delete(fields, "multimodal_data")
+	out.Extra = fields
+	*o = out
+	return nil
 }
 
 // EmbeddingContent carries chat-style content parts for a single input.
@@ -138,26 +199,30 @@ func (in *EmbeddingInput) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		if err := json.Unmarshal(v, &elems); err != nil {
 			return err
 		}
-		if !slices.ContainsFunc(elems, isNumber) {
-			batch := make([]EmbeddingInput, len(elems))
-			for i, elem := range elems {
-				if err := batch[i].unmarshalEmbeddingEntry(elem); err != nil {
-					return fmt.Errorf("llama: embedding input %d: %w", i, err)
-				}
-				if batch[i].IsZero() {
-					return fmt.Errorf("llama: embedding input %d is null", i)
-				}
+		if slices.ContainsFunc(elems, isNumber) {
+			p, err := embeddingArrayPrompt(v, elems)
+			if err != nil {
+				return err
 			}
-			*in = EmbeddingInput{batch: batch}
+			*in = EmbeddingInput{prompt: p}
 			return nil
 		}
+		batch := make([]EmbeddingInput, len(elems))
+		for i, elem := range elems {
+			if err := batch[i].unmarshalEmbeddingEntry(elem); err != nil {
+				return fmt.Errorf("llama: embedding input %d: %w", i, err)
+			}
+		}
+		*in = EmbeddingInput{batch: batch}
+		return nil
 	}
 	return in.unmarshalEmbeddingEntry(v)
 }
 
 func (in *EmbeddingInput) unmarshalEmbeddingEntry(v jsontext.Value) error {
 	var result EmbeddingInput
-	if v.Kind() == '{' {
+	switch v.Kind() {
+	case '{':
 		var fields map[string]jsontext.Value
 		if err := json.Unmarshal(v, &fields); err != nil {
 			return err
@@ -166,9 +231,29 @@ func (in *EmbeddingInput) unmarshalEmbeddingEntry(v jsontext.Value) error {
 			if content.Kind() != '[' {
 				return errors.New("llama: embedding content must be an array")
 			}
-			if err := json.Unmarshal(v, &result.content, jsonOptions); err != nil {
+			var parts []ContentPart
+			if err := json.Unmarshal(content, &parts, jsonOptions); err != nil {
 				return err
 			}
+			// Optional fields on shared chat types cannot distinguish some null and
+			// empty values from absence. Do not re-encode a different request.
+			if bytes.Contains(content, []byte("null")) || bytes.Contains(content, []byte(`""`)) {
+				raw, err := json.Marshal(parts, jsonOptions)
+				if err != nil {
+					return err
+				}
+				encoded := jsontext.Value(raw)
+				for _, v := range []*jsontext.Value{&content, &encoded} {
+					if err := v.Format(jsontext.ReorderRawObjects(true)); err != nil {
+						return err
+					}
+				}
+				if !bytes.Equal(content, encoded) {
+					return errors.New("llama: embedding content contains a null or empty field that cannot be preserved")
+				}
+			}
+			delete(fields, "content")
+			result.content = &EmbeddingContent{Content: parts, Extra: fields}
 		} else if _, ok := fields["prompt_string"]; ok {
 			if err := json.Unmarshal(v, &result.object, jsonOptions); err != nil {
 				return err
@@ -176,9 +261,65 @@ func (in *EmbeddingInput) unmarshalEmbeddingEntry(v jsontext.Value) error {
 		} else {
 			return errors.New("llama: embedding input object needs content or prompt_string")
 		}
-	} else if err := result.prompt.unmarshalSingle(v); err != nil {
-		return err
+	case '[':
+		var elems []jsontext.Value
+		if err := json.Unmarshal(v, &elems); err != nil {
+			return err
+		}
+		p, err := embeddingArrayPrompt(v, elems)
+		if err != nil {
+			return err
+		}
+		result.prompt = p
+	case '"':
+		if err := result.prompt.unmarshalSingle(v); err != nil {
+			return err
+		}
+	default:
+		return errors.New("llama: embedding input must be a string, array or object")
 	}
 	*in = result
 	return nil
 }
+
+// Outside prompt_string the server selects a single token sequence by integer spelling,
+// not by numeric value. Decimal spellings are accepted only inside a mixed sequence.
+func embeddingArrayPrompt(v jsontext.Value, elems []jsontext.Value) (Prompt, error) {
+	var hasInteger, hasText bool
+	for _, e := range elems {
+		hasInteger = hasInteger || (isNumber(e) && !bytes.ContainsAny(e, ".eE"))
+		hasText = hasText || e.Kind() == '"'
+	}
+	if !hasInteger {
+		return Prompt{}, errors.New("llama: embedding array must contain at least one integer token")
+	}
+	if !hasText {
+		var tokens []Token
+		for _, e := range elems {
+			if !isNumber(e) {
+				return Prompt{}, errors.New("llama: embedding token list must contain only integer tokens")
+			}
+		}
+		if err := json.Unmarshal(v, &tokens); err != nil {
+			return Prompt{}, err
+		}
+		return Prompt{kind: PromptKindTokens, tokens: tokens}, nil
+	}
+	var flat TokenizeContent
+	if err := json.Unmarshal(v, &flat, embeddingTokenDecoder); err != nil {
+		return Prompt{}, err
+	}
+	return Prompt{kind: PromptKindMixed, parts: flat.Parts()}, nil
+}
+
+var embeddingTokenDecoder = json.WithUnmarshalers(json.UnmarshalFunc(func(raw []byte, id *Token) error {
+	if !bytes.ContainsAny(raw, ".eE") {
+		return json.Unmarshal(raw, id)
+	}
+	n, ok := new(big.Rat).SetString(string(raw))
+	if !ok || !n.IsInt() || !n.Num().IsInt64() || n.Num().Int64() < math.MinInt32 || n.Num().Int64() > math.MaxInt32 {
+		return errors.New("llama: embedding token must be an integral int32")
+	}
+	*id = Token(n.Num().Int64())
+	return nil
+}))

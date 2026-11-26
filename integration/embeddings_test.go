@@ -14,6 +14,8 @@
 package integration
 
 import (
+	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"math"
 	"net/http"
@@ -48,7 +50,7 @@ var presetEmbeddingPerToken = &serverPreset{
 
 func TestEmbeddingNativeAliases(t *testing.T) {
 	c, observer := presetEmbeddingPooled.server(t).Client(t)
-	want, err := c.Embeddings(t.Context(), &llama.EmbeddingRequest{Input: llama.EmbeddingText("hello"), Normalize: new(2)})
+	want, err := c.Embeddings(t.Context(), &llama.EmbeddingRequest{Input: llama.EmbeddingText("hello"), Normalize: new(0)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,34 +58,35 @@ func TestEmbeddingNativeAliases(t *testing.T) {
 		t.Fatalf("expected one pooled embedding of dimension 384, got %d results", len(want))
 	}
 	values := want[0].Embedding[0].Values()
-	var squares float64
+	var maxAbs float64
 	for _, x := range values {
-		squares += x * x
+		maxAbs = max(maxAbs, math.Abs(x))
 	}
-	if norm := math.Sqrt(squares); math.Abs(norm-1) > 1e-5 {
-		t.Errorf("pooled vector norm = %g, want 1", norm)
+	if math.Abs(maxAbs-32760) > 0.01 {
+		t.Errorf("largest absolute component = %g, want 32760", maxAbs)
 	}
 
 	tests := map[string]struct {
 		path string
+		call func(context.Context, *llama.EmbeddingRequest, ...llama.RequestOption) (llama.EmbeddingResponse, error)
 		req  *llama.EmbeddingRequest
 	}{
 		"success: legacy alias with input": {
-			path: "/embedding",
-			req:  &llama.EmbeddingRequest{Input: llama.EmbeddingText("hello"), Normalize: new(2)},
+			path: "/embedding", call: c.Embedding,
+			req: &llama.EmbeddingRequest{Input: llama.EmbeddingText("hello"), Normalize: new(0)},
 		},
 		"success: input takes precedence": {
-			path: "/embeddings",
-			req:  &llama.EmbeddingRequest{Input: llama.EmbeddingText("hello"), Content: llama.EmbeddingText("world"), Normalize: new(2)},
+			path: "/embeddings", call: c.Embeddings,
+			req: &llama.EmbeddingRequest{Input: llama.EmbeddingText("hello"), Content: llama.EmbeddingText("world"), Normalize: new(0)},
 		},
-		"success: OpenAI path returns native for legacy content": {
-			path: "/v1/embeddings",
-			req:  &llama.EmbeddingRequest{Content: llama.EmbeddingText("hello"), Normalize: new(2), EncodingFormat: new(llama.EmbeddingEncodingBase64)},
+		"success: native method for legacy content": {
+			path: "/embeddings", call: c.Embeddings,
+			req: &llama.EmbeddingRequest{Content: llama.EmbeddingText("hello"), Normalize: new(0), EncodingFormat: new(llama.EmbeddingEncodingBase64)},
 		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := llama.Call[llama.EmbeddingResponse](t.Context(), c, http.MethodPost, test.path, test.req, llama.WithAutoload(false))
+			got, err := test.call(t.Context(), test.req, llama.WithAutoload(false))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -99,6 +102,27 @@ func TestEmbeddingNativeAliases(t *testing.T) {
 				t.Errorf("exchange method=%s path=%s query=%v body_closed=%v", ex.Method, ex.Path, ex.Query, ex.BodyClosed())
 			}
 		})
+	}
+}
+
+func TestOpenAIEmbeddingLegacyContent(t *testing.T) {
+	c, observer := presetEmbeddingPooled.server(t).Client(t)
+	oai := openai.NewClient(c)
+	req := &openai.EmbeddingRequest{Extra: map[string]jsontext.Value{"content": jsontext.Value(`"world"`)}}
+	count := len(observer.Exchanges())
+	if _, err := oai.Embeddings(t.Context(), req); err == nil || !strings.Contains(err.Error(), "llama.Client.Embeddings") {
+		t.Errorf("legacy content: got %v, want an error naming the native method", err)
+	}
+	if len(observer.Exchanges()) != count {
+		t.Error("sent a request that selects the native response")
+	}
+	req.Input = llama.EmbeddingText("hello")
+	got, err := oai.Embeddings(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Object != "list" || len(got.Data) != 1 {
+		t.Errorf("input and content: got %q with %d results, want an OpenAI list with one result", got.Object, len(got.Data))
 	}
 }
 

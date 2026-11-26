@@ -16,6 +16,7 @@ package openai
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"net/http"
 
 	llama "github.com/zchee/go-llama.cpp"
@@ -24,7 +25,7 @@ import (
 const embeddingsPath = "/v1/embeddings"
 
 // EmbeddingRequest requests embeddings from the OpenAI-compatible endpoint.
-// Set Input; substituting the legacy "content" key selects the native response instead.
+// Set Input. For legacy content-only requests, use [llama.Client.Embeddings] instead.
 type EmbeddingRequest struct {
 	Input llama.EmbeddingInput `json:"input,omitzero"`
 	// Model selects a model in router mode and overrides the model name in the response.
@@ -69,5 +70,10 @@ type EmbeddingVector = llama.EmbeddingVector
 
 // Embeddings sends a request to POST /v1/embeddings. The server must use pooled embeddings.
 func (c *Client) Embeddings(ctx context.Context, req *EmbeddingRequest, opts ...llama.RequestOption) (*EmbeddingResponse, error) {
+	if req != nil && req.Input.IsZero() {
+		if _, legacy := req.Extra["content"]; legacy {
+			return nil, errors.New("openai: use llama.Client.Embeddings for legacy content-only requests")
+		}
+	}
 	return llama.Call[*EmbeddingResponse](ctx, c.c, http.MethodPost, embeddingsPath, req, opts...)
 }
