@@ -120,11 +120,8 @@ func TestSystemoneRouter(t *testing.T) {
 	client := systemone.NewClient(c)
 	q := map[string]systemone.Question{"delivered": systemone.Noul(systemone.Text("Has it arrived?"), nil)}
 
-	if _, err := client.Evaluate(t.Context(), &systemone.Request{State: systemone.Text("A parcel has arrived."), Questions: q}); err == nil {
-		t.Fatal("unrouted POST /v1/systemone succeeded, want HTTP 400")
-	} else if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != "model name is missing from the request" {
-		t.Fatalf("unrouted POST /v1/systemone error = %v, want HTTP 400 model name is missing", err)
-	}
+	_, err := client.Evaluate(t.Context(), &systemone.Request{State: systemone.Text("A parcel has arrived."), Questions: q})
+	requireMissingRouterModel(t, err, "unrouted POST /v1/systemone")
 
 	res, err := client.Evaluate(t.Context(), &systemone.Request{Model: "tinyopenjev", State: systemone.Text("A parcel has arrived."), Questions: q})
 	if err != nil {

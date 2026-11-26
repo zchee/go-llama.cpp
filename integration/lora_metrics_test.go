@@ -106,11 +106,8 @@ func TestLoRAAdaptersRouter(t *testing.T) {
 	srv := harness.StartT(t, harness.Options{ModelsDir: dir, Args: []string{"--ctx-size", "512"}})
 	c, obs := srv.Client(t)
 
-	if _, err := c.LoRAAdapters(t.Context()); err == nil {
-		t.Fatal("unrouted GET /lora-adapters succeeded, want HTTP 400")
-	} else if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != "model name is missing from the request" {
-		t.Fatalf("unrouted GET /lora-adapters error = %v, want HTTP 400 invalid_request_error", err)
-	}
+	_, err := c.LoRAAdapters(t.Context())
+	requireMissingRouterModel(t, err, "unrouted GET /lora-adapters")
 
 	opts := llama.WithModelQuery("stories260K")
 	adapters, err := c.LoRAAdapters(t.Context(), opts)
@@ -121,11 +118,8 @@ func TestLoRAAdaptersRouter(t *testing.T) {
 		t.Errorf("adapters = %+v, want empty list", adapters)
 	}
 
-	if _, err := c.SetLoRAAdapters(t.Context(), []llama.LoRAWeight{{ID: 0, Scale: 0.5}}, opts); err == nil {
-		t.Fatal("routed POST /lora-adapters succeeded, want HTTP 400")
-	} else if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != "model name is missing from the request" {
-		t.Fatalf("routed POST /lora-adapters error = %v, want HTTP 400 invalid_request_error", err)
-	}
+	_, err = c.SetLoRAAdapters(t.Context(), []llama.LoRAWeight{{ID: 0, Scale: 0.5}}, opts)
+	requireMissingRouterModel(t, err, "routed POST /lora-adapters")
 
 	wantMethods := []string{http.MethodGet, http.MethodGet, http.MethodPost}
 	wantQueries := []url.Values{{}, {"model": {"stories260K"}}, {"model": {"stories260K"}}}
