@@ -17,7 +17,13 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"go.uber.org/goleak"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestUnknownSession(t *testing.T) {
 	err := run([]string{"not-a-session"})

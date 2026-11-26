@@ -20,7 +20,12 @@ import (
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
+	"go.uber.org/goleak"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 // readme builds a README with n plain endpoint headings plus one bold heading and some non-endpoint headings.
 func readme(n int) string {
