@@ -39,11 +39,8 @@ import (
 // events carry base64 audio, so the limit is far above the 32 KiB default of the WebSocket library.
 const DefaultReadLimit = 32 << 20
 
-// Intent values of DialOptions.
-const (
-	// IntentTranscription opens a transcription session.
-	IntentTranscription = "transcription"
-)
+// IntentTranscription opens a transcription session.
+const IntentTranscription = "transcription"
 
 // DialOptions configures Dial.
 type DialOptions struct {
@@ -103,7 +100,7 @@ func Dial(ctx context.Context, c *llama.Client, opts *DialOptions) (*Session, er
 			apiErr := llama.ReadAPIError(resp)
 			return nil, c.RedactError(fmt.Errorf("realtime: handshake refused: %w", apiErr))
 		}
-		// The handshake goes through the HTTP client directly, so its errors are redacted here.
+		// The WebSocket handshake bypasses llama's request error handling.
 		return nil, c.RedactError(fmt.Errorf("realtime: dial: %w", err))
 	}
 
