@@ -21,9 +21,9 @@ import (
 	"iter"
 	"maps"
 	"net/http"
-	"sync/atomic"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/streamerr"
 )
 
 // ResponsesRequest is the input to POST /v1/responses and /v1/responses/input_tokens.
@@ -116,7 +116,7 @@ func (c *Client) Responses(ctx context.Context, req *ResponsesRequest, opts ...l
 // a stream that ends without a response.completed event yields an error matching llama.ErrIncompleteStream.
 func (c *Client) ResponsesStream(ctx context.Context, req *ResponsesRequest, opts ...llama.RequestOption) iter.Seq2[*ResponseEvent, error] {
 	if req == nil {
-		return responsesStreamError[ResponseEvent](errors.New("openai: nil responses stream request"), llama.ErrStreamConsumed)
+		return streamerr.Once[ResponseEvent](errors.New("openai: nil responses stream request"), llama.ErrStreamConsumed)
 	}
 	return llama.Stream[ResponseEvent](ctx, c.c, http.MethodPost, "/v1/responses", responsesStreamMode(req, true), opts...)
 }
@@ -127,17 +127,6 @@ func (c *Client) ResponsesInputTokens(ctx context.Context, req *ResponsesRequest
 		return nil, errors.New("openai: nil responses input tokens request")
 	}
 	return llama.Call[*InputTokensResponse](ctx, c.c, http.MethodPost, "/v1/responses/input_tokens", req, opts...)
-}
-
-func responsesStreamError[T any](first, consumed error) iter.Seq2[*T, error] {
-	var used atomic.Bool
-	return func(yield func(*T, error) bool) {
-		if used.Swap(true) {
-			yield(nil, consumed)
-			return
-		}
-		yield(nil, first)
-	}
 }
 
 func responsesStreamMode(req *ResponsesRequest, stream bool) *ResponsesRequest {
