@@ -1,0 +1,1 @@
+{"input":[{"role":"user","content":"Call ping."},{"type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":"Use ping."}]},{"type":"function_call","call_id":"call_1","arguments":"{}","name":"ping"},{"type":"function_call_output","call_id":"call_1","output":[{"type":"input_text","text":"pong"}]}]}

@@ -1,0 +1,1 @@
+{"input":"Call ping.","tools":[{"type":"function","name":"ping","parameters":{"type":"object","properties":{},"additionalProperties":false}}],"tool_choice":"required","parallel_tool_calls":false,"max_output_tokens":128,"temperature":0,"extra_params":{"logit_bias":[[126,100],[128,99],[37,98]]}}

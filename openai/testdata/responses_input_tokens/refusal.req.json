@@ -1,0 +1,1 @@
+{"input":[{"role":"user","content":"Say hello"},{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"no"}]},{"role":"user","content":"Okay"}]}

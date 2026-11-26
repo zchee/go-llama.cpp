@@ -1,0 +1,1 @@
+{"input":"Think.","max_output_tokens":80,"extra_params":{"reasoning_format":"deepseek","grammar":"root ::= \"<think>test</think>Hello\""},"stream":true}
