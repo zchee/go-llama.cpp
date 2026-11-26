@@ -19,7 +19,6 @@ import (
 	json "encoding/json/v2"
 	"fmt"
 	"reflect"
-	"slices"
 
 	llama "github.com/zchee/go-llama.cpp"
 )
@@ -27,162 +26,62 @@ import (
 // Usage is the token usage of a chat or text completion.
 type Usage = llama.Usage
 
-// Message is one message of a chat conversation, in requests and in responses.
-type Message struct {
-	// Role is "system", "developer", "user", "assistant" or "tool".
-	Role string `json:"role"`
-	// Content is the message content. An assistant message that only calls tools may leave it unset.
-	Content MessageContent `json:"content,omitzero"`
-	// Name names the author of the message.
-	Name *string `json:"name,omitzero"`
-	// ReasoningContent is the reasoning of an assistant message, which llama.cpp returns separately from the
-	// content for reasoning models.
-	ReasoningContent *string `json:"reasoning_content,omitzero"`
-	// ToolCalls are the tool calls of an assistant message.
-	ToolCalls []ToolCall `json:"tool_calls,omitzero"`
-	// ToolCallID is the id of the tool call a "tool" message answers.
-	ToolCallID *string `json:"tool_call_id,omitzero"`
+// Message is one message of a chat conversation; see llama.Message.
+type Message = llama.Message
 
-	Extra map[string]jsontext.Value `json:",embed"`
-}
+// ContentKind is the JSON shape of a MessageContent; see llama.ContentKind.
+type ContentKind = llama.ContentKind
 
-// ContentKind is the JSON shape of a MessageContent.
-type ContentKind int
-
+// The shapes of a MessageContent.
 const (
-	// ContentKindNone is the zero MessageContent, omitted from requests.
-	ContentKindNone ContentKind = iota
-	// ContentKindText is a string.
-	ContentKindText
-	// ContentKindParts is an array of content parts.
-	ContentKindParts
-	// ContentKindNull is an explicit JSON null.
-	ContentKindNull
+	ContentKindNone  = llama.ContentKindNone
+	ContentKindText  = llama.ContentKindText
+	ContentKindParts = llama.ContentKindParts
+	ContentKindNull  = llama.ContentKindNull
 )
 
-// MessageContent is the "content" of a Message: a string, an array of content parts, or null. Build one with
-// TextContent, PartsContent or NullContent.
-type MessageContent struct {
-	kind  ContentKind
-	text  string
-	parts []ContentPart
-}
+// MessageContent is the "content" of a Message; see llama.MessageContent.
+type MessageContent = llama.MessageContent
+
+// ContentPart is one part of a MessageContent; see llama.ContentPart.
+type ContentPart = llama.ContentPart
+
+// ImageURL is the image of an "image_url" content part; see llama.ImageURL.
+type ImageURL = llama.ImageURL
+
+// MediaInput is the media of an "input_audio", "input_video" or "video_url" content part; see llama.MediaInput.
+type MediaInput = llama.MediaInput
+
+// ToolCall is a call of a tool by the model; see llama.ToolCall.
+type ToolCall = llama.ToolCall
+
+// FunctionCall is the function of a ToolCall; see llama.FunctionCall.
+type FunctionCall = llama.FunctionCall
 
 // TextContent returns content given as a string.
-func TextContent(s string) MessageContent { return MessageContent{kind: ContentKindText, text: s} }
+func TextContent(s string) MessageContent { return llama.TextContent(s) }
 
 // PartsContent returns content given as content parts, such as text and images.
-func PartsContent(parts ...ContentPart) MessageContent {
-	if parts == nil {
-		parts = []ContentPart{}
-	}
-	return MessageContent{kind: ContentKindParts, parts: slices.Clone(parts)}
-}
+func PartsContent(parts ...ContentPart) MessageContent { return llama.PartsContent(parts...) }
 
 // NullContent returns content that is an explicit JSON null.
-func NullContent() MessageContent { return MessageContent{kind: ContentKindNull} }
-
-// Kind returns the shape of the content.
-func (m MessageContent) Kind() ContentKind { return m.kind }
-
-// Text returns the string of ContentKindText content.
-func (m MessageContent) Text() string { return m.text }
-
-// Parts returns the parts of ContentKindParts content.
-func (m MessageContent) Parts() []ContentPart { return m.parts }
-
-// IsZero reports whether the content is unset.
-func (m MessageContent) IsZero() bool { return m.kind == ContentKindNone }
-
-// Equal reports whether two contents have the same shape and content.
-func (m MessageContent) Equal(o MessageContent) bool {
-	return m.kind == o.kind && m.text == o.text && reflect.DeepEqual(m.parts, o.parts)
-}
-
-// MarshalJSONTo implements json.MarshalerTo.
-func (m MessageContent) MarshalJSONTo(enc *jsontext.Encoder) error {
-	switch m.kind {
-	case ContentKindText:
-		return enc.WriteToken(jsontext.String(m.text))
-	case ContentKindParts:
-		return json.MarshalEncode(enc, m.parts)
-	default:
-		return enc.WriteToken(jsontext.Null)
-	}
-}
-
-// UnmarshalJSONFrom implements json.UnmarshalerFrom.
-func (m *MessageContent) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	switch kind := dec.PeekKind(); kind {
-	case '"':
-		var s string
-		if err := json.UnmarshalDecode(dec, &s); err != nil {
-			return err
-		}
-		*m = TextContent(s)
-	case '[':
-		var parts []ContentPart
-		if err := json.UnmarshalDecode(dec, &parts); err != nil {
-			return err
-		}
-		*m = PartsContent(parts...)
-	case 'n':
-		if _, err := dec.ReadToken(); err != nil {
-			return err
-		}
-		*m = NullContent()
-	default:
-		return fmt.Errorf("openai: content must be a string, an array or null, got %s", kind)
-	}
-	return nil
-}
-
-// ContentPart is one part of a MessageContent.
-type ContentPart struct {
-	// Type is "text", "image_url", "input_audio", "input_video" or "video_url".
-	Type string `json:"type"`
-	// Text is the text of a "text" part.
-	Text *string `json:"text,omitzero"`
-	// ImageURL is the image of an "image_url" part.
-	ImageURL *ImageURL `json:"image_url,omitzero"`
-	// InputAudio is the audio of an "input_audio" part.
-	InputAudio *MediaInput `json:"input_audio,omitzero"`
-	// InputVideo is the video of an "input_video" part.
-	InputVideo *MediaInput `json:"input_video,omitzero"`
-	// VideoURL is the video of a "video_url" part.
-	VideoURL *MediaInput `json:"video_url,omitzero"`
-
-	Extra map[string]jsontext.Value `json:",embed"`
-}
+func NullContent() MessageContent { return llama.NullContent() }
 
 // TextPart returns a "text" content part.
-func TextPart(s string) ContentPart { return ContentPart{Type: "text", Text: &s} }
+func TextPart(s string) ContentPart { return llama.TextContentPart(s) }
 
 // ImageURLPart returns an "image_url" content part. url is an http(s) URL, a data: URL with base64 data, or bare
 // base64 data.
-func ImageURLPart(url string) ContentPart {
-	return ContentPart{Type: "image_url", ImageURL: &ImageURL{URL: url}}
-}
+func ImageURLPart(url string) ContentPart { return llama.ImageURLContentPart(url) }
 
-// ImageURL is the image of an "image_url" content part.
-type ImageURL struct {
-	// URL is an http(s) URL, a data: URL with base64 data, or bare base64 data.
-	URL string `json:"url"`
-	// Detail is the OpenAI detail level; llama.cpp ignores it.
-	Detail *string `json:"detail,omitzero"`
-
-	Extra map[string]jsontext.Value `json:",embed"`
-}
-
-// MediaInput is the media of an "input_audio", "input_video" or "video_url" content part. The server reads Data
-// and falls back to URL.
-type MediaInput struct {
-	// Data is base64 data or a data: URL.
-	Data *string `json:"data,omitzero"`
-	// URL is an http(s) URL or a data: URL.
-	URL *string `json:"url,omitzero"`
-	// Format is the media format, such as "wav"; llama.cpp does not need it.
-	Format *string `json:"format,omitzero"`
+// InputTokensResponse is the response of POST /v1/chat/completions/input_tokens and POST
+// /v1/responses/input_tokens: the number of tokens the input would take (handle_count_tokens in
+// tools/server/server-context.cpp).
+type InputTokensResponse struct {
+	// Object is "response.input_tokens".
+	Object string `json:"object"`
+	// InputTokens is the number of input tokens.
+	InputTokens int64 `json:"input_tokens"`
 
 	Extra map[string]jsontext.Value `json:",embed"`
 }
@@ -207,31 +106,6 @@ type FunctionDefinition struct {
 	Parameters jsontext.Value `json:"parameters,omitzero"`
 	// Strict asks for arguments that match the schema exactly.
 	Strict *bool `json:"strict,omitzero"`
-
-	Extra map[string]jsontext.Value `json:",embed"`
-}
-
-// ToolCall is a call of a tool by the model. In streamed deltas only Index and the parts that changed are set,
-// so every member is optional.
-type ToolCall struct {
-	// Index is the position of the call, set in streamed deltas.
-	Index *int `json:"index,omitzero"`
-	// ID identifies the call; the "tool" message answering it repeats it.
-	ID *string `json:"id,omitzero"`
-	// Type is "function".
-	Type *string `json:"type,omitzero"`
-	// Function is the called function.
-	Function *FunctionCall `json:"function,omitzero"`
-
-	Extra map[string]jsontext.Value `json:",embed"`
-}
-
-// FunctionCall is the function of a ToolCall.
-type FunctionCall struct {
-	// Name is the function name.
-	Name *string `json:"name,omitzero"`
-	// Arguments is the JSON text of the arguments, or the next piece of it in a streamed delta.
-	Arguments *string `json:"arguments,omitzero"`
 
 	Extra map[string]jsontext.Value `json:",embed"`
 }
