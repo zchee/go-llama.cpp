@@ -1,0 +1,1 @@
+[{"id":0,"path":"moe_shakespeare15M.gguf","scale":0.0,"task_name":"","prompt_prefix":""},{"id":1,"path":"invocation.gguf","scale":0.75,"task_name":"fixture task","prompt_prefix":"fixture prefix","alora_invocation_string":"'(","alora_invocation_tokens":[42,43]}]
