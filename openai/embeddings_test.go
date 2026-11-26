@@ -105,7 +105,7 @@ func TestEmbeddingsNewRequest(t *testing.T) {
 	}{
 		"success: float": {
 			fixture: "float",
-			body:    &EmbeddingRequest{Input: llama.EmbeddingText("hello"), Model: new("caller-alias"), EncodingFormat: new(llama.EmbeddingEncodingFloat)},
+			body:    &EmbeddingRequest{Input: llama.EmbeddingText("hello"), Model: "caller-alias", EncodingFormat: new(llama.EmbeddingEncodingFloat)},
 		},
 		"success: image and text": {
 			fixture: "multimodal_refused",

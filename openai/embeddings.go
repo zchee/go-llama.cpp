@@ -29,7 +29,7 @@ const embeddingsPath = "/v1/embeddings"
 type EmbeddingRequest struct {
 	Input llama.EmbeddingInput `json:"input,omitzero"`
 	// Model selects a model in router mode and overrides the model name in the response.
-	Model          *string                        `json:"model,omitzero"`
+	Model          string                         `json:"model,omitzero"`
 	EncodingFormat *llama.EmbeddingEncodingFormat `json:"encoding_format,omitzero"`
 	// Normalize sets the llama.cpp normalization for the pooled vectors.
 	Normalize *int `json:"embd_normalize,omitzero"`

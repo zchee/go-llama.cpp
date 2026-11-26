@@ -29,7 +29,7 @@ type CompletionRequest struct {
 	SamplingParams
 	Prompt Prompt `json:"prompt"`
 	// Model selects a model when the request goes through a router.
-	Model *string `json:"model,omitzero"`
+	Model string `json:"model,omitzero"`
 	// NCmpl is the number of completions to generate for each prompt.
 	NCmpl *int `json:"n_cmpl,omitzero"`
 	// Stream is selected automatically by the typed client methods.

@@ -150,7 +150,7 @@ func TestAnthropicNewRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := &MessagesRequest{Model: new("stories"), Messages: []Message{{Role: "user", Content: TextContent("")}}, System: BlocksContent(), ExtraParams: &ExtraParams{Seed: new(int64(0)), CachePrompt: new(false)}}
+	body := &MessagesRequest{Model: "stories", Messages: []Message{{Role: "user", Content: TextContent("")}}, System: BlocksContent(), ExtraParams: &ExtraParams{Seed: new(int64(0)), CachePrompt: new(false)}}
 	tests := map[string]struct {
 		path   string
 		stream *bool

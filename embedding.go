@@ -43,7 +43,7 @@ type EmbeddingRequest struct {
 	// Content is the legacy name for Input.
 	Content EmbeddingInput `json:"content,omitzero"`
 	// Model selects the model in router mode.
-	Model *string `json:"model,omitzero"`
+	Model string `json:"model,omitzero"`
 	// Normalize specifies the norm for pooled vectors: -1 (none), 0 (max absolute), 1 (L1),
 	// 2 (L2), or a larger p (p-norm). It is ignored with pooling none.
 	Normalize *int `json:"embd_normalize,omitzero"`

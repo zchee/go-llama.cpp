@@ -32,7 +32,7 @@ type InfillRequest struct {
 	InputSuffix InfillInput               `json:"input_suffix"`
 	InputExtra  []InfillContext           `json:"input_extra,omitzero"`
 	Prompt      *string                   `json:"prompt,omitzero"`
-	Model       *string                   `json:"model,omitzero"`
+	Model       string                    `json:"model,omitzero"`
 	NCmpl       *int                      `json:"n_cmpl,omitzero"`
 	Stream      *bool                     `json:"stream,omitzero"`
 	Extra       map[string]jsontext.Value `json:",embed"`

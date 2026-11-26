@@ -27,7 +27,7 @@ import (
 // MessagesRequest is the input to Messages, MessagesStream and CountTokens.
 type MessagesRequest struct {
 	// Model selects the model in router mode; a single-model server ignores it.
-	Model *string `json:"model,omitzero"`
+	Model string `json:"model,omitzero"`
 	// Messages is the conversation in chronological order.
 	Messages []Message `json:"messages"`
 	// System is a system instruction. For a block list the server concatenates text blocks.

@@ -53,13 +53,13 @@ type SlotNextToken struct {
 // SlotFileRequest names a file in the server's slot save directory, not the client's filesystem.
 type SlotFileRequest struct {
 	Filename string                    `json:"filename"`
-	Model    *string                   `json:"model,omitzero"`
+	Model    string                    `json:"model,omitzero"`
 	Extra    map[string]jsontext.Value `json:",embed"`
 }
 
 // SlotEraseRequest optionally selects the model on a router; a single-model server needs no body.
 type SlotEraseRequest struct {
-	Model *string                   `json:"model,omitzero"`
+	Model string                    `json:"model,omitzero"`
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

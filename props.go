@@ -84,7 +84,7 @@ type PropsChatTemplateCaps struct {
 
 // PropsSetRequest addresses a model in router mode. The model server currently ignores the request body.
 type PropsSetRequest struct {
-	Model *string                   `json:"model,omitzero"`
+	Model string                    `json:"model,omitzero"`
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

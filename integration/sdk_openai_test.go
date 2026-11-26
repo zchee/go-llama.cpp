@@ -120,7 +120,7 @@ func TestSDKEmbeddings(t *testing.T) {
 					t.Errorf("embedding %d (-SDK +library):\n%s\nwire: %s", i, diff, x.response)
 				}
 			}
-			x.checkRequest(t, &openai.EmbeddingRequest{Model: new(model), Input: llama.EmbeddingText("hello"), EncodingFormat: &tt.format, Normalize: new(2)}, "embd_normalize")
+			x.checkRequest(t, &openai.EmbeddingRequest{Model: model, Input: llama.EmbeddingText("hello"), EncodingFormat: &tt.format, Normalize: new(2)}, "embd_normalize")
 		})
 	}
 }

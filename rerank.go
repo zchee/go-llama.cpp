@@ -169,7 +169,7 @@ type RerankRequest struct {
 	// Documents must contain at least one candidate.
 	Documents []RerankInput `json:"documents"`
 	// Model selects the model in router mode and is echoed in the response.
-	Model *string `json:"model,omitzero"`
+	Model string `json:"model,omitzero"`
 	// TopN limits the returned results; nil returns all, zero returns none.
 	TopN  *int32                    `json:"top_n,omitzero"`
 	Extra map[string]jsontext.Value `json:",embed"`
@@ -213,7 +213,7 @@ type RerankTEIRequest struct {
 	// Texts must contain at least one candidate.
 	Texts []RerankInput `json:"texts"`
 	// Model selects the model in router mode.
-	Model *string `json:"model,omitzero"`
+	Model string `json:"model,omitzero"`
 	// TopN limits the returned results; nil returns all, zero returns none.
 	TopN *int32 `json:"top_n,omitzero"`
 	// ReturnText asks the server to echo the text of each returned document.

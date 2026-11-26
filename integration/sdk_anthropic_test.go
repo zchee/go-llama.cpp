@@ -48,7 +48,7 @@ func TestSDKAnthropic(t *testing.T) {
 				text = "Call ping."
 			}
 			params := sdk.MessageNewParams{Model: "stories", Messages: []sdk.MessageParam{sdk.NewUserMessage(sdk.NewTextBlock(text))}, MaxTokens: 8, Temperature: sdk.Float(0)}
-			local := &anthropic.MessagesRequest{Model: new("stories"), Messages: []anthropic.Message{{Role: "user", Content: anthropic.BlocksContent(anthropic.ContentBlock{Type: "text", Text: &text})}}}
+			local := &anthropic.MessagesRequest{Model: "stories", Messages: []anthropic.Message{{Role: "user", Content: anthropic.BlocksContent(anthropic.ContentBlock{Type: "text", Text: &text})}}}
 			if tt.count {
 				resp, err := client.Messages.CountTokens(t.Context(), sdk.MessageCountTokensParams{Model: params.Model, Messages: params.Messages})
 				if err != nil {

@@ -202,12 +202,12 @@ func TestRerankAliases(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			req := llama.RerankRequest{Query: llama.RerankText("city"), Documents: []llama.RerankInput{llama.RerankText("Paris")}, Model: new("alias-test")}
+			req := llama.RerankRequest{Query: llama.RerankText("city"), Documents: []llama.RerankInput{llama.RerankText("Paris")}, Model: "alias-test"}
 			got, err := llama.Call[llama.RerankResponse](t.Context(), c, http.MethodPost, tt.path, &req)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Model != *req.Model || len(got.Results) != 1 || got.Results[0].Index != 0 {
+			if got.Model != req.Model || len(got.Results) != 1 || got.Results[0].Index != 0 {
 				t.Fatalf("POST %s: unexpected result: %+v", tt.path, got)
 			}
 		})
