@@ -37,6 +37,31 @@ import (
 	"github.com/zchee/go-llama.cpp/internal/speech"
 )
 
+func TestTTSRequestModel(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		want  string
+	}{
+		"success: empty model omitted": {input: `{"model":""}`, want: `{}`},
+		"success: explicit model kept": {input: `{"model":"audio"}`, want: `{"model":"audio"}`},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var req TTSRequest
+			if err := json.Unmarshal([]byte(tc.input), &req); err != nil {
+				t.Fatal(err)
+			}
+			got, err := json.Marshal(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := gocmp.Diff(tc.want, string(got)); diff != "" {
+				t.Fatalf("request JSON mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestTTSWire(t *testing.T) {
 	c, err := New("http://localhost")
 	if err != nil {

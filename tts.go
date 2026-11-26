@@ -30,8 +30,8 @@ type TTSParams struct {
 	Input *string `json:"input,omitzero"`
 	// Prompt supplies the text when Input is absent.
 	Prompt *string `json:"prompt,omitzero"`
-	// Model selects the model in router mode.
-	Model *string `json:"model,omitzero"`
+	// Model selects the model in router mode. An empty name is omitted.
+	Model string `json:"model,omitzero"`
 	// Lang selects the language on models with language controls.
 	Lang *string `json:"lang,omitzero"`
 	// RawPrompt sends the text to the model as is (for example phonemes), skipping the model's "tts" chat
