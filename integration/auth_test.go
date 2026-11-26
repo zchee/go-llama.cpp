@@ -78,9 +78,9 @@ func TestAuthentication(t *testing.T) {
 				}
 			}
 
-			health, err := c.Health(t.Context())
-			if err != nil || health.Status != "ok" {
-				t.Errorf("/health must be open whatever the key: %+v, %v", health, err)
+			health, healthErr := c.Health(t.Context())
+			if healthErr != nil || health.Status != "ok" {
+				t.Errorf("/health must be open whatever the key: %+v, %v", health, healthErr)
 			}
 
 			exchanges := obs.Exchanges()
@@ -105,9 +105,14 @@ func TestAuthentication(t *testing.T) {
 			if !strings.Contains(propsLine, fmt.Sprintf("status=%d", tt.wantStatus)) {
 				t.Errorf("request log line of /props lacks status=%d: %q", tt.wantStatus, propsLine)
 			}
-			for _, out := range []string{fmt.Sprint(err), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", c), logs.String()} {
-				if strings.Contains(out, testAPIKey) {
-					t.Errorf("the API key appears in output: %s", out)
+			sentKey := strings.TrimPrefix(exchanges[0].Header.Get(tt.wantHeader), "Bearer ")
+			outputs := map[string]string{"log": logs.String(), "client": fmt.Sprintf("%#v", c)}
+			for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+				outputs[format] = fmt.Sprintf(format, err)
+			}
+			for source, out := range outputs {
+				if strings.Contains(out, testAPIKey) || (sentKey != "" && strings.Contains(out, sentKey)) {
+					t.Errorf("%s disclosed an API key", source)
 				}
 			}
 		})
