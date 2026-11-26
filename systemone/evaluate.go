@@ -1,0 +1,146 @@
+// Copyright 2026 The go-llama.cpp Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package systemone
+
+import (
+	"context"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
+	"errors"
+	"fmt"
+	"net/http"
+
+	llama "github.com/zchee/go-llama.cpp"
+)
+
+// Payload is a state, instruction or description. Its zero value is omitted from optional fields;
+// Null sends an explicit JSON null. Support for null depends on the model.
+type Payload struct {
+	text string
+	raw  jsontext.Value
+	kind jsontext.Kind
+}
+
+// Text returns a string payload, including an empty string.
+func Text(s string) Payload { return Payload{text: s, kind: '"'} }
+
+// Null returns an explicit JSON null.
+func Null() Payload { return Payload{kind: 'n'} }
+
+// NewPayload encodes a string, object, array or null. For example, a slice of openai.Message
+// encodes a conversation; an openai.ContentPart can encode a spoken instruction.
+func NewPayload(v any) (Payload, error) {
+	data, err := json.Marshal(v, json.Deterministic(true))
+	if err != nil {
+		return Payload{}, err
+	}
+	var p Payload
+	err = json.Unmarshal(data, &p)
+	return p, err
+}
+
+// IsZero reports whether the payload is unset, as distinct from an explicit null.
+func (p Payload) IsZero() bool { return p.kind == 0 }
+
+// MarshalJSONTo implements json.MarshalerTo.
+func (p Payload) MarshalJSONTo(enc *jsontext.Encoder) error {
+	switch p.kind {
+	case '"':
+		return enc.WriteToken(jsontext.String(p.text))
+	case '{', '[':
+		return enc.WriteValue(p.raw)
+	case 'n':
+		return enc.WriteToken(jsontext.Null)
+	default:
+		return errors.New("systemone: payload is unset; use Null for a JSON null")
+	}
+}
+
+// UnmarshalJSONFrom implements json.UnmarshalerFrom.
+func (p *Payload) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	kind := dec.PeekKind()
+	switch kind {
+	case '"', 'n':
+		token, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if kind == 'n' {
+			*p = Null()
+		} else {
+			*p = Text(token.String())
+		}
+	case '{', '[':
+		raw, err := dec.ReadValue()
+		if err != nil {
+			return err
+		}
+		*p = Payload{kind: kind, raw: raw.Clone()}
+	default:
+		return fmt.Errorf("systemone: expected text, object, array or null, got %s", kind)
+	}
+	return nil
+}
+
+// Request asks named questions about State. Files and Images are alternative spellings for a list
+// of media data URLs; set at most one. Extra cannot override any named request field.
+type Request struct {
+	State     Payload                   `json:"state"`
+	Questions map[string]Question       `json:"questions"`
+	Files     []string                  `json:"files,omitzero"`
+	Images    []string                  `json:"images,omitzero"`
+	Extra     map[string]jsontext.Value `json:",embed"`
+}
+
+// MarshalJSONTo implements json.MarshalerTo.
+func (r Request) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if r.Files != nil && r.Images != nil {
+		return errors.New("systemone: set only one of files and images")
+	}
+	if err := reserved(r.Extra, "state", "questions", "files", "images"); err != nil {
+		return err
+	}
+	type wire Request
+	return json.MarshalEncode(enc, wire(r))
+}
+
+func reserved(extra map[string]jsontext.Value, names ...string) error {
+	for _, name := range names {
+		if _, ok := extra[name]; ok {
+			return fmt.Errorf("systemone: %q is reserved and cannot be supplied in Extra", name)
+		}
+	}
+	return nil
+}
+
+// Response contains the loaded model's answers, keyed by question ID.
+type Response struct {
+	Model   string                    `json:"model"`
+	Answers map[string]Answer         `json:"answers"`
+	Usage   Usage                     `json:"usage"`
+	Extra   map[string]jsontext.Value `json:",embed"`
+}
+
+// Usage counts prompt tokens across the questions. OutputTokens is zero for decision models.
+type Usage struct {
+	InputTokens  int                       `json:"input_tokens"`
+	OutputTokens int                       `json:"output_tokens"`
+	Extra        map[string]jsontext.Value `json:",embed"`
+}
+
+// Evaluate answers the questions in req using POST /v1/systemone. This endpoint does not stream.
+func (c *Client) Evaluate(ctx context.Context, req *Request, opts ...llama.RequestOption) (*Response, error) {
+	return llama.Call[*Response](ctx, c.c, http.MethodPost, "/v1/systemone", req, opts...)
+}

@@ -1,0 +1,1 @@
+{"state":[{"role":"user","content":[{"type":"text","text":"The box is blue."}]}],"files":["data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZ7kAAAAASUVORK5CYII="],"questions":{"q":{"type":"score","instructions":{"task":"Rate the colour match"},"criteria":[{"match":"no"},["yes"]]}}}

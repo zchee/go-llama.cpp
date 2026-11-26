@@ -1,0 +1,1 @@
+{"state":"The parcel has arrived.","questions":{"route":{"type":"choice","instructions":"Which team?","criteria":{"billing":null,"shipping":"deliveries"}},"urgency":{"type":"score","instructions":"How urgent?","criteria":["low","high"]},"delivered":{"type":"noul","instructions":"Has it arrived?","criteria":{"false":null,"true":"arrived"}}}}

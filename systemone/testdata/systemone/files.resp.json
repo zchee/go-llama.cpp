@@ -1,0 +1,1 @@
+{"model":"tinyopenjev","answers":{"q":{"type":"score","score":0.5902054581193268,"legend":{"0":{"match":"no"},"1":["yes"]},"probabilities":{"0":0.40979454188067327,"1":0.5902054581193268},"confidence":0.18041091623865346}},"usage":{"input_tokens":119,"output_tokens":0}}
