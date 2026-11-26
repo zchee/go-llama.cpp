@@ -1,0 +1,40 @@
+// Copyright 2026 The go-llama.cpp Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package llama
+
+import (
+	"context"
+	"encoding/json/jsontext"
+	"net/http"
+)
+
+// DetokenizeRequest is the body sent to POST /detokenize.
+type DetokenizeRequest struct {
+	Tokens []Token `json:"tokens,omitzero"`
+
+	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+// DetokenizeResponse is the JSON returned by POST /detokenize.
+type DetokenizeResponse struct {
+	Content string `json:"content"`
+
+	Extra map[string]jsontext.Value `json:",embed"`
+}
+
+// Detokenize converts token IDs to text using the model's vocabulary.
+func (c *Client) Detokenize(ctx context.Context, req *DetokenizeRequest, opts ...RequestOption) (*DetokenizeResponse, error) {
+	return Call[*DetokenizeResponse](ctx, c, http.MethodPost, "/detokenize", req, opts...)
+}
