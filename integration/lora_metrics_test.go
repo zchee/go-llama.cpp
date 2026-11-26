@@ -103,6 +103,51 @@ func TestLoRAAdaptersReplaceGlobalScales(t *testing.T) {
 	}
 }
 
+func TestLoRAAdaptersRouter(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink(harness.Model(t, "stories260K"), filepath.Join(dir, "stories260K.gguf")); err != nil {
+		t.Fatal(err)
+	}
+	srv := harness.StartT(t, harness.Options{ModelsDir: dir, Args: []string{"--ctx-size", "512"}})
+	c, obs := srv.Client(t)
+
+	if _, err := c.LoRAAdapters(t.Context()); err == nil {
+		t.Fatal("unrouted GET /lora-adapters succeeded, want HTTP 400")
+	} else if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != "model name is missing from the request" {
+		t.Fatalf("unrouted GET /lora-adapters error = %v, want HTTP 400 invalid_request_error", err)
+	}
+
+	opts := llama.WithModelQuery("stories260K")
+	adapters, err := c.LoRAAdapters(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adapters) != 0 {
+		t.Errorf("adapters = %+v, want empty list", adapters)
+	}
+
+	if _, err := c.SetLoRAAdapters(t.Context(), []llama.LoRAWeight{{ID: 0, Scale: 0.5}}, opts); err == nil {
+		t.Fatal("routed POST /lora-adapters succeeded, want HTTP 400")
+	} else if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != "model name is missing from the request" {
+		t.Fatalf("routed POST /lora-adapters error = %v, want HTTP 400 invalid_request_error", err)
+	}
+
+	wantMethods := []string{http.MethodGet, http.MethodGet, http.MethodPost}
+	wantQueries := []url.Values{{}, {"model": {"stories260K"}}, {"model": {"stories260K"}}}
+	got := obs.Exchanges()
+	if len(got) != len(wantMethods) {
+		t.Fatalf("request count = %d, want %d", len(got), len(wantMethods))
+	}
+	for i, exchange := range got {
+		if exchange.Method != wantMethods[i] || exchange.Path != "/lora-adapters" || !exchange.BodyClosed() {
+			t.Errorf("request %d = %s %s (closed: %t), want %s /lora-adapters with closed body", i, exchange.Method, exchange.Path, exchange.BodyClosed(), wantMethods[i])
+		}
+		if diff := gocmp.Diff(wantQueries[i], exchange.Query); diff != "" {
+			t.Errorf("request %d query mismatch (-want +got):\n%s", i, diff)
+		}
+	}
+}
+
 func TestLoRAMetricsServerErrors(t *testing.T) {
 	tests := map[string]struct {
 		server *serverPreset

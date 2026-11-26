@@ -57,7 +57,10 @@ func (c *Client) LoRAAdapters(ctx context.Context, opts ...RequestOption) ([]LoR
 
 // SetLoRAAdapters replaces the global adapter scales. Omitted adapters are disabled, so an empty
 // or nil slice disables them all. A generation request can override the global scales for that request.
-// In router mode, select a model with WithModelQuery.
+//
+// Updating global adapter scales requires a direct single-model instance: in router mode llama-server
+// reads the target model from a JSON object body for POST requests, whereas this endpoint requires a
+// top-level JSON array, so POST /lora-adapters fails with HTTP 400 even when WithModelQuery is passed.
 func (c *Client) SetLoRAAdapters(ctx context.Context, weights []LoRAWeight, opts ...RequestOption) (*LoRASetAdaptersResponse, error) {
 	res, err := Call[*LoRASetAdaptersResponse](ctx, c, http.MethodPost, loraAdaptersPath, weights, opts...)
 	return res, c.RedactError(err)

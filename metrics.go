@@ -39,7 +39,9 @@ type MetricsResponse struct {
 }
 
 // Metrics scrapes and parses the metrics of a server started with --metrics.
-// In router mode, select a model with WithModelQuery.
+// Each call performs a fresh scrape and resets the server's throughput window, because llama-server
+// averages throughput gauges between consecutive scrapes; read MetricsResponse.Raw to inspect the
+// raw Prometheus text from the same sample. In router mode, select a model with WithModelQuery.
 func (c *Client) Metrics(ctx context.Context, opts ...RequestOption) (*MetricsResponse, error) {
 	raw, err := c.MetricsText(ctx, opts...)
 	if err != nil {
@@ -50,7 +52,9 @@ func (c *Client) Metrics(ctx context.Context, opts ...RequestOption) (*MetricsRe
 }
 
 // MetricsText returns the original Prometheus text without parsing it.
-// The server needs --metrics, and in router mode the request needs WithModelQuery.
+// Each call performs a fresh scrape and resets the server's throughput window, so callers that need
+// both parsed metrics and the raw text from the same sample should call Metrics and read
+// MetricsResponse.Raw. The server needs --metrics, and in router mode the request needs WithModelQuery.
 func (c *Client) MetricsText(ctx context.Context, opts ...RequestOption) (string, error) {
 	resp, err := CallRaw(ctx, c, http.MethodGet, metricsPath, nil, opts...)
 	if err != nil {
@@ -145,7 +149,8 @@ func (m *MetricsResponse) SpecDecodeDraftsTotal() (float64, bool) {
 }
 
 // SpecDecodeAcceptedTokensPerPosition returns accepted draft token counts keyed by zero-based draft
-// position, or nil when there are no such samples.
+// position, or nil when there are no matching counter samples with canonical decimal position labels.
+// All parsed samples remain available in Families.
 func (m *MetricsResponse) SpecDecodeAcceptedTokensPerPosition() map[int]float64 {
 	family := m.Families["llamacpp:spec_decode_num_accepted_tokens_per_pos_total"]
 	if family.GetType() != dto.MetricType_COUNTER {
@@ -158,8 +163,9 @@ func (m *MetricsResponse) SpecDecodeAcceptedTokensPerPosition() map[int]float64 
 		if len(labels) != 1 || labels[0].GetName() != "position" || counter == nil || counter.Value == nil {
 			continue
 		}
-		pos, err := strconv.Atoi(labels[0].GetValue())
-		if err != nil || pos < 0 {
+		rawPos := labels[0].GetValue()
+		pos, err := strconv.Atoi(rawPos)
+		if err != nil || pos < 0 || strconv.Itoa(pos) != rawPos {
 			continue
 		}
 		if out == nil {

@@ -114,11 +114,13 @@ func TestLoRAAdaptersRequest(t *testing.T) {
 	tests := map[string]struct {
 		method  string
 		body    any
+		opts    []RequestOption
+		query   url.Values
 		fixture string
 	}{
-		"success: list":           {method: http.MethodGet},
-		"success: set":            {method: http.MethodPost, body: []LoRAWeight{{ID: 0, Scale: 0.5}}, fixture: "set"},
-		"success: clear with nil": {method: http.MethodPost, body: []LoRAWeight(nil), fixture: "clear"},
+		"success: list in router mode": {method: http.MethodGet, opts: []RequestOption{WithModelQuery("stories/MOE")}, query: url.Values{"model": {"stories/MOE"}}},
+		"success: set":                 {method: http.MethodPost, body: []LoRAWeight{{ID: 0, Scale: 0.5}}, query: url.Values{}, fixture: "set"},
+		"success: clear with nil":      {method: http.MethodPost, body: []LoRAWeight(nil), query: url.Values{}, fixture: "clear"},
 	}
 	c, err := New("http://localhost")
 	if err != nil {
@@ -126,14 +128,14 @@ func TestLoRAAdaptersRequest(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			req, err := c.NewRequest(t.Context(), tc.method, loraAdaptersPath, tc.body, WithModelQuery("stories/MOE"))
+			req, err := c.NewRequest(t.Context(), tc.method, loraAdaptersPath, tc.body, tc.opts...)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if req.Method != tc.method || req.URL.Path != "/lora-adapters" {
 				t.Errorf("request = %s %s, want %s /lora-adapters", req.Method, req.URL.Path, tc.method)
 			}
-			if diff := gocmp.Diff(url.Values{"model": {"stories/MOE"}}, req.URL.Query()); diff != "" {
+			if diff := gocmp.Diff(tc.query, req.URL.Query()); diff != "" {
 				t.Errorf("request query mismatch (-want +got):\n%s", diff)
 			}
 			if tc.fixture == "" {
@@ -163,7 +165,8 @@ func TestLoRAAdaptersErrorWire(t *testing.T) {
 		fixture string
 		message string
 	}{
-		"error: body is not an array": {fixture: "non_array", message: "Request body must be an array"},
+		"error: body is not an array":      {fixture: "non_array", message: "Request body must be an array"},
+		"error: router rejects array post": {fixture: "router_missing_model", message: "model name is missing from the request"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
