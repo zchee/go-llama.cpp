@@ -1,0 +1,47 @@
+[
+  {
+    "type": "session.update",
+    "session": {
+      "tools": [
+        {
+          "type": "function",
+          "name": "weather",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        }
+      ],
+      "tool_choice": "required",
+      "output_modalities": [
+        "text"
+      ],
+      "max_output_tokens": 16
+    }
+  },
+  {
+    "type": "conversation.item.create",
+    "item": {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "hello"
+        }
+      ]
+    }
+  },
+  {
+    "type": "response.create"
+  },
+  {
+    "type": "conversation.item.create",
+    "item": {
+      "type": "function_call_output",
+      "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+      "output": "sunny"
+    }
+  }
+]

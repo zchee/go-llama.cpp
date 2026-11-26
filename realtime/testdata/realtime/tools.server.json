@@ -1,0 +1,234 @@
+[
+  {
+    "type": "session.created",
+    "session": {
+      "id": "sess_IFARzEvUQiwxsLzLpEqTtniDP8diGEFw",
+      "object": "realtime.session",
+      "type": "realtime",
+      "model": "tinyLFM3-Omni",
+      "instructions": "",
+      "output_modalities": null,
+      "max_output_tokens": "inf",
+      "tools": [],
+      "tool_choice": "auto",
+      "audio": {
+        "input": {
+          "format": {
+            "type": "audio/pcm",
+            "rate": 16000
+          },
+          "turn_detection": null
+        },
+        "output": {
+          "format": {
+            "type": "audio/pcm",
+            "rate": 24000
+          },
+          "voice": null,
+          "language": null
+        }
+      }
+    },
+    "event_id": "event_avDR89EzPvj0wIaFbKVtfif7WnLj3HnQ"
+  },
+  {
+    "type": "session.updated",
+    "session": {
+      "id": "sess_IFARzEvUQiwxsLzLpEqTtniDP8diGEFw",
+      "object": "realtime.session",
+      "type": "realtime",
+      "model": "tinyLFM3-Omni",
+      "instructions": "",
+      "output_modalities": [
+        "text"
+      ],
+      "max_output_tokens": 16,
+      "tools": [
+        {
+          "type": "function",
+          "name": "weather",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        }
+      ],
+      "tool_choice": "required",
+      "audio": {
+        "input": {
+          "format": {
+            "type": "audio/pcm",
+            "rate": 16000
+          },
+          "turn_detection": null
+        },
+        "output": {
+          "format": {
+            "type": "audio/pcm",
+            "rate": 24000
+          },
+          "voice": null,
+          "language": null
+        }
+      }
+    },
+    "event_id": "event_S0SBilSJOadpFYhnOL4ct7CQ91qeRj0a"
+  },
+  {
+    "type": "conversation.item.added",
+    "previous_item_id": null,
+    "item": {
+      "id": "item_2trstEpccBDRDp3hjPLgW2W5vPD4Oxgq",
+      "object": "realtime.item",
+      "type": "message",
+      "role": "user",
+      "status": "completed",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "hello"
+        }
+      ]
+    },
+    "event_id": "event_YanT0TrFVcnXaa6K9JYWTiYiM12pfKHj"
+  },
+  {
+    "type": "conversation.item.done",
+    "previous_item_id": null,
+    "item": {
+      "id": "item_2trstEpccBDRDp3hjPLgW2W5vPD4Oxgq",
+      "object": "realtime.item",
+      "type": "message",
+      "role": "user",
+      "status": "completed",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "hello"
+        }
+      ]
+    },
+    "event_id": "event_VGSSkiIQ7Cn129XY3LzwaZjYPq3kz6Mc"
+  },
+  {
+    "type": "response.created",
+    "response": {
+      "id": "resp_TDEGm6lD4jM0iYhM11Rj1YJg8Xk83Cv1",
+      "object": "realtime.response",
+      "status": "in_progress",
+      "output_modalities": [
+        "text"
+      ],
+      "output": []
+    },
+    "event_id": "event_qhUhGHyuODrMNXzUOduxZHDQsxBqfgGU"
+  },
+  {
+    "type": "response.output_item.added",
+    "response_id": "resp_TDEGm6lD4jM0iYhM11Rj1YJg8Xk83Cv1",
+    "output_index": 0,
+    "item": {
+      "id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+      "object": "realtime.item",
+      "type": "function_call",
+      "status": "in_progress",
+      "name": "weather",
+      "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+      "arguments": ""
+    },
+    "event_id": "event_pJG9ngzrV7qDnoByAzQD6KywfXQtl5qb"
+  },
+  {
+    "type": "response.function_call_arguments.delta",
+    "response_id": "resp_TDEGm6lD4jM0iYhM11Rj1YJg8Xk83Cv1",
+    "item_id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+    "output_index": 0,
+    "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+    "delta": "{",
+    "event_id": "event_ASdHDy6NxSKkxyKXGsfh6x6HZ0SMHgme"
+  },
+  {
+    "type": "response.function_call_arguments.delta",
+    "response_id": "resp_TDEGm6lD4jM0iYhM11Rj1YJg8Xk83Cv1",
+    "item_id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+    "output_index": 0,
+    "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+    "delta": "}",
+    "event_id": "event_zB3Fw1u7zCCVHYrXqu27UPTfUk3Z0LlF"
+  },
+  {
+    "type": "response.function_call_arguments.done",
+    "response_id": "resp_TDEGm6lD4jM0iYhM11Rj1YJg8Xk83Cv1",
+    "item_id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+    "output_index": 0,
+    "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+    "name": "weather",
+    "arguments": "{}",
+    "event_id": "event_xdfNrqjQgxw4J6CuFi7y0X1jmlyvYJIL"
+  },
+  {
+    "type": "response.output_item.done",
+    "response_id": "resp_TDEGm6lD4jM0iYhM11Rj1YJg8Xk83Cv1",
+    "output_index": 0,
+    "item": {
+      "id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+      "object": "realtime.item",
+      "type": "function_call",
+      "status": "completed",
+      "name": "weather",
+      "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+      "arguments": "{}"
+    },
+    "event_id": "event_MMC4TOBoe2E1SJawBOqjckgqVzGydgyT"
+  },
+  {
+    "type": "response.done",
+    "response": {
+      "id": "resp_TDEGm6lD4jM0iYhM11Rj1YJg8Xk83Cv1",
+      "object": "realtime.response",
+      "status": "completed",
+      "output": [
+        {
+          "id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+          "object": "realtime.item",
+          "type": "function_call",
+          "status": "completed",
+          "name": "weather",
+          "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+          "arguments": "{}"
+        }
+      ],
+      "usage": {
+        "output_tokens": 16
+      }
+    },
+    "event_id": "event_LyQBMSxu3qIvuuyxu0ZCb2pg8t1KMkCt"
+  },
+  {
+    "type": "conversation.item.added",
+    "previous_item_id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+    "item": {
+      "id": "item_wyAdGf4z6ixeITcyk5bj2Oyl5tXoWF0Y",
+      "object": "realtime.item",
+      "type": "function_call_output",
+      "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+      "output": "sunny",
+      "status": "completed"
+    },
+    "event_id": "event_JGy8QaXb6puYZp7K0fBBhD1ENgw0pfgv"
+  },
+  {
+    "type": "conversation.item.done",
+    "previous_item_id": "item_eYxcftOqfn2U6pK8ahpy0ahMGRSfUNaC",
+    "item": {
+      "id": "item_wyAdGf4z6ixeITcyk5bj2Oyl5tXoWF0Y",
+      "object": "realtime.item",
+      "type": "function_call_output",
+      "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+      "output": "sunny",
+      "status": "completed"
+    },
+    "event_id": "event_86HsQVORooLMr9hmPVVyo6JS2OQgNZMj"
+  }
+]

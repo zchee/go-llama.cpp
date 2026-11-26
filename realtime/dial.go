@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package realtime is a client for the realtime WebSocket API of llama-server (/v1/realtime): live transcription
-// and realtime conversation.
+// and turn-based or full duplex conversation.
 //
 // Dial opens a Session. The context given to Dial governs only the handshake; the session stays open until the
 // caller calls Close (a normal closure) or CloseNow.
@@ -23,8 +23,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"slices"
+	"sync/atomic"
 
 	"github.com/coder/websocket"
 
@@ -43,8 +46,8 @@ const (
 
 // DialOptions configures Dial.
 type DialOptions struct {
-	// Intent is the "intent" query parameter. IntentTranscription opens a transcription session; empty opens a
-	// realtime conversation.
+	// Intent is the "intent" query parameter. IntentTranscription requests live ASR on a model that supports it.
+	// With no intent, the model selects transcription, turn-based conversation or full duplex conversation.
 	Intent string
 	// Model is the "model" query parameter, which a server in router mode uses to pick the model.
 	Model string
@@ -56,7 +59,10 @@ type DialOptions struct {
 
 // Session is an open realtime WebSocket connection.
 type Session struct {
-	conn *websocket.Conn
+	conn    *websocket.Conn
+	client  *llama.Client
+	reading atomic.Bool
+	upgrade io.Closer
 }
 
 // Dial opens a realtime session through the HTTP client and the authentication headers of c. ctx bounds the
@@ -68,7 +74,7 @@ func Dial(ctx context.Context, c *llama.Client, opts *DialOptions) (*Session, er
 	if opts == nil {
 		opts = &DialOptions{}
 	}
-	reqOpts := opts.RequestOptions
+	reqOpts := slices.Clip(opts.RequestOptions)
 	if opts.Intent != "" {
 		reqOpts = append(reqOpts, llama.WithQuery("intent", opts.Intent))
 	}
@@ -77,11 +83,17 @@ func Dial(ctx context.Context, c *llama.Client, opts *DialOptions) (*Session, er
 	}
 	req, err := c.NewRequest(ctx, http.MethodGet, "/v1/realtime", nil, reqOpts...)
 	if err != nil {
-		return nil, err
+		return nil, c.RedactError(err)
 	}
 
+	hc := *c.HTTPClient()
+	upgrade := &upgradeTransport{next: hc.Transport}
+	if upgrade.next == nil {
+		upgrade.next = http.DefaultTransport
+	}
+	hc.Transport = upgrade
 	conn, resp, err := websocket.Dial(ctx, req.URL.String(), &websocket.DialOptions{
-		HTTPClient: c.HTTPClient(),
+		HTTPClient: &hc,
 		HTTPHeader: req.Header,
 	})
 	if err != nil {
@@ -98,27 +110,43 @@ func Dial(ctx context.Context, c *llama.Client, opts *DialOptions) (*Session, er
 		limit = DefaultReadLimit
 	}
 	conn.SetReadLimit(limit)
-	return &Session{conn: conn}, nil
+	return &Session{conn: conn, client: c, upgrade: upgrade.body}, nil
+}
+
+// Once coder/websocket starts a normal close, CloseNow waits for that handshake too.
+// Retain the upgraded connection so a caller's close deadline can actually interrupt it.
+type upgradeTransport struct {
+	next http.RoundTripper
+	body io.Closer
+}
+
+func (u *upgradeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := u.next.RoundTrip(req)
+	if err == nil && resp.StatusCode == http.StatusSwitchingProtocols {
+		u.body = resp.Body
+	}
+	return resp, err
 }
 
 // Close ends the session with a normal closure and waits for the server to acknowledge it. When ctx ends first,
 // the connection is closed without waiting.
 func (s *Session) Close(ctx context.Context) error {
-	done := make(chan error, 1)
-	go func() { done <- s.conn.Close(websocket.StatusNormalClosure, "") }()
-	select {
-	case err := <-done:
-		return normalizeCloseError(err)
-	case <-ctx.Done():
-		_ = s.conn.CloseNow()
-		<-done
-		return context.Cause(ctx)
+	if err := context.Cause(ctx); err != nil {
+		_ = s.CloseNow()
+		return s.client.RedactError(err)
 	}
+	stop := context.AfterFunc(ctx, func() { _ = s.upgrade.Close() })
+	defer stop()
+	err := s.conn.Close(websocket.StatusNormalClosure, "")
+	if cause := context.Cause(ctx); cause != nil {
+		return s.client.RedactError(cause)
+	}
+	return s.client.RedactError(normalizeCloseError(err))
 }
 
 // CloseNow closes the connection without the closing handshake.
 func (s *Session) CloseNow() error {
-	return normalizeCloseError(s.conn.CloseNow())
+	return s.client.RedactError(normalizeCloseError(s.conn.CloseNow()))
 }
 
 // normalizeCloseError treats closing an already closed session as success.
