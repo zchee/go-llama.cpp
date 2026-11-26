@@ -16,9 +16,6 @@ package openai
 
 import (
 	"encoding/json/jsontext"
-	json "encoding/json/v2"
-	"fmt"
-	"reflect"
 
 	llama "github.com/zchee/go-llama.cpp"
 )
@@ -80,138 +77,49 @@ func ImageURLPart(url string) ContentPart { return llama.ImageURLContentPart(url
 type InputTokensResponse struct {
 	// Object is "response.input_tokens".
 	Object string `json:"object"`
-	// InputTokens is the number of input tokens.
+	// InputTokens is the number of tokens the input would take.
 	InputTokens int64 `json:"input_tokens"`
 
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
-// Tool is a tool the model may call. llama.cpp needs --jinja for tools.
-type Tool struct {
-	// Type is "function".
-	Type string `json:"type"`
-	// Function describes the function.
-	Function *FunctionDefinition `json:"function,omitzero"`
+// Tool is a tool the model may call; see llama.Tool.
+type Tool = llama.Tool
 
-	Extra map[string]jsontext.Value `json:",embed"`
-}
+// FunctionDefinition describes a function tool; see llama.FunctionDefinition.
+type FunctionDefinition = llama.FunctionDefinition
 
-// FunctionDefinition describes a function tool.
-type FunctionDefinition struct {
-	// Name is the function name.
-	Name string `json:"name"`
-	// Description tells the model what the function does.
-	Description *string `json:"description,omitzero"`
-	// Parameters is the JSON schema of the arguments; llama.SchemaFor builds one from a Go type.
-	Parameters jsontext.Value `json:"parameters,omitzero"`
-	// Strict asks for arguments that match the schema exactly.
-	Strict *bool `json:"strict,omitzero"`
+// ToolChoice is a mode, a named function, or an allowlist of functions; see llama.ToolChoice.
+type ToolChoice = llama.ToolChoice
 
-	Extra map[string]jsontext.Value `json:",embed"`
-}
+// NamedToolChoice is the object form of a ToolChoice that names one function; see llama.NamedToolChoice.
+type NamedToolChoice = llama.NamedToolChoice
 
-// ToolChoice is the "tool_choice" of a request: a mode ("auto", "none", "required") or a named function. Build
-// one with ToolChoiceMode or ToolChoiceFunction.
-type ToolChoice struct {
-	mode     string
-	function *NamedToolChoice
-}
+// FunctionName names the function of a NamedToolChoice; see llama.FunctionName.
+type FunctionName = llama.FunctionName
 
-// NamedToolChoice is the object form of a ToolChoice.
-type NamedToolChoice struct {
-	// Type is "function".
-	Type string `json:"type"`
-	// Function names the function to call.
-	Function FunctionName `json:"function"`
+// AllowedToolChoice is the allowlist form of a ToolChoice; see llama.AllowedToolChoice.
+type AllowedToolChoice = llama.AllowedToolChoice
 
-	Extra map[string]jsontext.Value `json:",embed"`
-}
-
-// FunctionName names the function of a NamedToolChoice.
-type FunctionName struct {
-	// Name is the function name.
-	Name string `json:"name"`
-
-	Extra map[string]jsontext.Value `json:",embed"`
-}
+// AllowedTools holds the selection mode and function references of an AllowedToolChoice; see llama.AllowedTools.
+type AllowedTools = llama.AllowedTools
 
 // ToolChoiceMode returns a tool choice given as a mode: "auto", "none" or "required".
-func ToolChoiceMode(mode string) ToolChoice { return ToolChoice{mode: mode} }
+func ToolChoiceMode(mode string) ToolChoice { return llama.ToolChoiceMode(mode) }
 
 // ToolChoiceFunction returns a tool choice that forces a call of the named function.
-func ToolChoiceFunction(name string) ToolChoice {
-	return ToolChoice{function: &NamedToolChoice{Type: "function", Function: FunctionName{Name: name}}}
+func ToolChoiceFunction(name string) ToolChoice { return llama.ToolChoiceFunction(name) }
+
+// ToolChoiceAllowedTools returns a tool choice that limits the model to the named functions in the given mode.
+func ToolChoiceAllowedTools(mode string, names ...string) ToolChoice {
+	return llama.ToolChoiceAllowedTools(mode, names...)
 }
 
-// Mode returns the mode of a tool choice given as a string.
-func (c ToolChoice) Mode() string { return c.mode }
+// ResponseFormat is the "response_format" of a request; see llama.ResponseFormat.
+type ResponseFormat = llama.ResponseFormat
 
-// Function returns the object of a tool choice given as an object.
-func (c ToolChoice) Function() *NamedToolChoice { return c.function }
-
-// IsZero reports whether the tool choice is unset.
-func (c ToolChoice) IsZero() bool { return c.mode == "" && c.function == nil }
-
-// Equal reports whether two tool choices have the same form and content.
-func (c ToolChoice) Equal(o ToolChoice) bool {
-	return c.mode == o.mode && reflect.DeepEqual(c.function, o.function)
-}
-
-// MarshalJSONTo implements json.MarshalerTo.
-func (c ToolChoice) MarshalJSONTo(enc *jsontext.Encoder) error {
-	if c.function != nil {
-		return json.MarshalEncode(enc, c.function)
-	}
-	return enc.WriteToken(jsontext.String(c.mode))
-}
-
-// UnmarshalJSONFrom implements json.UnmarshalerFrom.
-func (c *ToolChoice) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	switch kind := dec.PeekKind(); kind {
-	case '"':
-		var s string
-		if err := json.UnmarshalDecode(dec, &s); err != nil {
-			return err
-		}
-		*c = ToolChoice{mode: s}
-	case '{':
-		n := new(NamedToolChoice)
-		if err := json.UnmarshalDecode(dec, n); err != nil {
-			return err
-		}
-		*c = ToolChoice{function: n}
-	default:
-		return fmt.Errorf("openai: tool_choice must be a string or an object, got %s", kind)
-	}
-	return nil
-}
-
-// ResponseFormat is the "response_format" of a request. llama.cpp turns a schema into a grammar; it reads
-// JSONSchema.Schema for "json_schema" and Schema for "json_object" or a "json_schema" without the wrapper.
-type ResponseFormat struct {
-	// Type is "text", "json_object" or "json_schema".
-	Type string `json:"type"`
-	// JSONSchema is the schema of a "json_schema" format.
-	JSONSchema *JSONSchemaFormat `json:"json_schema,omitzero"`
-	// Schema is a schema given directly, a llama.cpp extension.
-	Schema jsontext.Value `json:"schema,omitzero"`
-
-	Extra map[string]jsontext.Value `json:",embed"`
-}
-
-// JSONSchemaFormat is the schema of a "json_schema" ResponseFormat.
-type JSONSchemaFormat struct {
-	// Name names the schema.
-	Name string `json:"name,omitzero"`
-	// Description describes the schema.
-	Description *string `json:"description,omitzero"`
-	// Schema is the JSON schema; llama.SchemaFor builds one from a Go type.
-	Schema jsontext.Value `json:"schema,omitzero"`
-	// Strict asks for output that matches the schema exactly.
-	Strict *bool `json:"strict,omitzero"`
-
-	Extra map[string]jsontext.Value `json:",embed"`
-}
+// JSONSchemaFormat is the schema of a "json_schema" ResponseFormat; see llama.JSONSchemaFormat.
+type JSONSchemaFormat = llama.JSONSchemaFormat
 
 // StreamOptions are the "stream_options" of a streaming request.
 type StreamOptions struct {

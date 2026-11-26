@@ -81,38 +81,22 @@ func TestMessageContentJSON(t *testing.T) {
 	}
 }
 
-func TestToolChoiceJSON(t *testing.T) {
-	tests := map[string]struct {
-		choice ToolChoice
-		json   string
-	}{
-		"success: mode":     {choice: ToolChoiceMode("required"), json: `"required"`},
-		"success: function": {choice: ToolChoiceFunction("get_weather"), json: `{"type":"function","function":{"name":"get_weather"}}`},
+func TestToolChoiceAliases(t *testing.T) {
+	data := jsontest.ReadFile(t, "../testdata/apply-template/allowed_tools.req.json")
+	got := jsontest.RoundTrip[chatShape](t, data)
+	jsontest.InjectUnknown[chatShape](t, data)
+	jsontest.NoUnknown[chatShape](t, data, nil)
+	jsontest.CheckFallbacks[AllowedToolChoice](t)
+	want := ToolChoiceAllowedTools("required", "weather")
+	if diff := gocmp.Diff(want, got.ToolChoice); diff != "" {
+		t.Errorf("allowlist differs (-want +got):\n%s", diff)
 	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			got, err := json.Marshal(tt.choice)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(got) != tt.json {
-				t.Errorf("Marshal = %s, want %s", got, tt.json)
-			}
-			var back ToolChoice
-			if err := json.Unmarshal(got, &back); err != nil {
-				t.Fatal(err)
-			}
-			if diff := gocmp.Diff(tt.choice, back); diff != "" {
-				t.Errorf("round trip (-want +got):\n%s", diff)
-			}
-		})
+	if len(got.Tools) != 1 || got.Tools[0].DeferLoading == nil || !*got.Tools[0].DeferLoading {
+		t.Fatalf("expected the tool-level defer_loading flag, got %+v", got.Tools)
 	}
-	var c ToolChoice
-	if err := json.Unmarshal([]byte(`[]`), &c); err == nil {
-		t.Errorf("tool_choice accepted an array")
-	}
-	if ToolChoiceMode("auto").Mode() != "auto" || ToolChoiceFunction("f").Function().Function.Name != "f" || !(ToolChoice{}).IsZero() {
-		t.Errorf("accessors do not return the built choice")
+	function := got.Tools[0].Function
+	if function == nil || function.DeferLoading == nil || *function.DeferLoading {
+		t.Errorf("expected explicit false on the function-level defer_loading flag, got %+v", function)
 	}
 }
 
@@ -157,6 +141,7 @@ func TestSharedTypesKeepUnknownMembers(t *testing.T) {
 		// Raw JSON schemas are kept as is, so an injected member survives without exercising a fallback.
 		"/tools/0/function/parameters", "/response_format/json_schema/schema",
 	))
+	jsontest.NoUnknown[chatShape](t, data, nil)
 	jsontest.CheckFallbacks[chatShape](t)
 	jsontest.CheckFallbacks[NamedToolChoice](t)
 	jsontest.CheckFallbacks[ContentPart](t)
