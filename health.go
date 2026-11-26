@@ -32,9 +32,10 @@ import (
 
 // HealthResponse is the body of a successful GET /health.
 type HealthResponse struct {
-	// Status is "ok" once the model is loaded.
+	// Status is "ok" on a ready server; a loading server sends an error response instead.
 	Status string `json:"status"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

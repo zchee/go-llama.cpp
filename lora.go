@@ -28,24 +28,25 @@ type LoRAAdapter struct {
 	ID int `json:"id"`
 	// Path is the adapter path on the server, not on the client.
 	Path string `json:"path"`
-	// Scale is the global scale; zero disables the adapter.
+	// Scale is the configured global weight, where zero disables the adapter and requests may override it.
 	Scale float64 `json:"scale"`
-	// TaskName and PromptPrefix come from the adapter's metadata.
-	TaskName     string `json:"task_name"`
+	// TaskName is the task label stored in the adapter metadata, or empty when none is recorded.
+	TaskName string `json:"task_name"`
+	// PromptPrefix is the suggested prompt prefix from the adapter metadata, or empty when none is recorded.
 	PromptPrefix string `json:"prompt_prefix"`
-	// ALoRAInvocationString is present only for adapters with invocation tokens.
+	// ALoRAInvocationString is the text form of the invocation, omitted when the adapter has no invocation tokens.
 	ALoRAInvocationString *string `json:"alora_invocation_string,omitzero"`
-	// ALoRAInvocationTokens are the token IDs that activate an aLoRA adapter.
+	// ALoRAInvocationTokens are the token IDs that activate the adapter and are omitted for ordinary LoRA adapters.
 	ALoRAInvocationTokens []Token `json:"alora_invocation_tokens,omitzero"`
-	// Extra preserves unrecognized response members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // LoRASetAdaptersResponse reports whether the server updated its global scales.
 type LoRASetAdaptersResponse struct {
-	// Success reports whether the update was applied.
+	// Success is true after the server applies the update; a rejected update returns an API error instead.
 	Success bool `json:"success"`
-	// Extra preserves unrecognized response members.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

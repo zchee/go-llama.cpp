@@ -41,9 +41,11 @@ type EmbeddingInput struct {
 type EmbeddingPromptObject struct {
 	// PromptString is text, or without media, a list of text and/or token ids.
 	// Build it with TokenizeText or TokenizeParts.
-	PromptString   TokenizeContent `json:"prompt_string"`
-	MultimodalData [][]byte        `json:"multimodal_data,omitzero"`
+	PromptString TokenizeContent `json:"prompt_string"`
+	// MultimodalData supplies media files for the prompt's media markers in order, encoded as base64 when present.
+	MultimodalData [][]byte `json:"multimodal_data,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -105,8 +107,10 @@ func (o *EmbeddingPromptObject) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // EmbeddingContent carries chat-style content parts for a single input.
 type EmbeddingContent struct {
+	// Content supplies the ordered chat-style text and media parts to embed as one input.
 	Content []ContentPart `json:"content"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

@@ -63,17 +63,17 @@ type APIError struct {
 	// StatusCode is the HTTP status code of the response. For an error delivered inside a stream it is the status
 	// of the stream response (200), and Code carries the status the server assigned to the error.
 	StatusCode int
-	// Code is the "code" member of the error object.
+	// Code is the status assigned to the JSON error, which can differ from StatusCode and is zero if omitted.
 	Code int
-	// Message is the "message" member of the error object.
+	// Message is the server's explanation, or a short body snippet or HTTP status text for a non-JSON error.
 	Message string
-	// Type is the "type" member of the error object.
+	// Type is the server's machine-readable error category, or empty when none was supplied.
 	Type ErrorType
 	// NPromptTokens is the prompt length in tokens, set for ErrorTypeExceedContextSize.
 	NPromptTokens int
-	// NCtx is the slot context size, set for ErrorTypeExceedContextSize.
+	// NCtx is the slot capacity in tokens, set for ErrorTypeExceedContextSize.
 	NCtx int
-	// Raw is the error body as received, truncated to 1 MiB.
+	// Raw holds the error response body or in-stream JSON payload, truncated to 1 MiB.
 	Raw []byte
 	// Header is the header of the response that carried the error.
 	Header http.Header

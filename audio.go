@@ -34,13 +34,13 @@ type Audio struct {
 type AudioFormat struct {
 	// MediaType is audio/wav or audio/pcm.
 	MediaType string
-	// SampleRate is the number of PCM sample frames per second.
+	// SampleRate is the number of PCM sample frames per second, or zero for WAV.
 	SampleRate int
-	// Channels is the number of interleaved PCM channels, one when the header omits it.
+	// Channels is the PCM channel count (one if omitted from the PCM header), or zero for WAV.
 	Channels int
-	// Encoding is the PCM representation, such as float or signed-int.
+	// Encoding is the raw PCM representation, such as "float" or "signed-int", or empty for WAV.
 	Encoding string
-	// Bits is the number of bits per PCM sample.
+	// Bits is the number of bits per PCM sample, or zero for WAV.
 	Bits int
 }
 

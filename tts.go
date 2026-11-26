@@ -30,58 +30,56 @@ type TTSParams struct {
 	Input *string `json:"input,omitzero"`
 	// Prompt supplies the text when Input is absent.
 	Prompt *string `json:"prompt,omitzero"`
-	// Model selects the model in router mode. An empty name is omitted.
+	// Model is required in router mode to select the model; the client omits an empty name.
 	Model string `json:"model,omitzero"`
-	// Lang selects the language on models with language controls.
+	// Lang selects a model-dependent language code and uses the server's configured language when omitted.
 	Lang *string `json:"lang,omitzero"`
-	// RawPrompt sends the text to the model as is (for example phonemes), skipping the model's "tts" chat
-	// template.
+	// RawPrompt bypasses the "tts" template to send model-ready text such as phonemes; it defaults to false.
 	RawPrompt *bool `json:"raw_prompt,omitzero"`
 	// SpeakerRef is uploaded as a multipart file and takes precedence over SpeakerRefB64. When RawPrompt is
 	// also set, the request is sent as JSON carrying the reference bytes in SpeakerRefB64 instead: the
 	// server's multipart parser restores the types of its numeric and stream fields but leaves raw_prompt a
 	// string, which the handler silently reads as false.
 	SpeakerRef *SpeakerRef `json:"-"`
-	// SpeakerRefB64 holds reference audio bytes; JSON encodes them as base64.
+	// SpeakerRefB64 supplies optional reference audio for voice cloning, encoded as base64 in JSON.
 	SpeakerRefB64 []byte `json:"speaker_ref_b64,omitzero"`
-	// SpeakerRefText is the transcript of the reference audio.
+	// SpeakerRefText supplies an optional transcript of the reference audio for models that use it in the prompt.
 	SpeakerRefText *string `json:"speaker_ref_text,omitzero"`
-	// TopK limits the number of candidates in audio and backbone sampling.
+	// TopK caps candidates for both samplers; zero or nil keeps the server's backbone and model's audio defaults.
 	TopK *int `json:"top_k,omitzero"`
-	// TopP limits the cumulative probability of candidates.
+	// TopP caps cumulative sampling probability in [0, 1], with zero or nil keeping the sampling defaults.
 	TopP *float64 `json:"top_p,omitzero"`
-	// Temperature controls sampling randomness; zero selects greedy sampling.
+	// Temperature is nonnegative: zero selects greedy sampling and nil keeps the backbone and audio defaults.
 	Temperature *float64 `json:"temperature,omitzero"`
-	// RepeatPenalty discourages repetition over the generated utterance.
+	// RepeatPenalty discourages backbone repetition over the utterance and defaults to 1.05.
 	RepeatPenalty *float64 `json:"repeat_penalty,omitzero"`
-	// Seed sets the RNG seed for both samplers; -1 requests a random seed.
+	// Seed seeds both the backbone and audio generator; -1 requests randomness and nil uses the server seed.
 	Seed *int64 `json:"seed,omitzero"`
-	// Speed sets the relative speaking speed on models supporting it.
+	// Speed is the positive pace multiplier for models that support it and defaults to 1.0, the model's own pace.
 	Speed *float64 `json:"speed,omitzero"`
-	// Loudness sets the target loudness in LUFS on models supporting it.
+	// Loudness sets a negative target in LUFS on supported models and defaults to zero, the model's own loudness.
 	Loudness *float64 `json:"loudness,omitzero"`
-	// CFGScale sets classifier-free guidance on models supporting it.
+	// CFGScale sets classifier-free guidance: one disables it and zero or nil uses the model default.
 	CFGScale *float64 `json:"cfg_scale,omitzero"`
-	// FlowSteps sets the number of flow-matching solver steps on models supporting it.
+	// FlowSteps sets 1 to 1024 solver steps on models with flow matching; zero or nil uses the model default.
 	FlowSteps *int `json:"flow_steps,omitzero"`
-	// NPredict limits the number of audio frames to generate.
+	// NPredict caps the number of generated audio frames, with -1 or omission using the model's limit.
 	NPredict *int `json:"n_predict,omitzero"`
-	// MaxTokens is an alias for NPredict.
+	// MaxTokens is an alias for NPredict, which takes precedence if both are set.
 	MaxTokens *int `json:"max_tokens,omitzero"`
-	// Stream requests an audio byte stream, not server-sent events. A generation that fails after the
-	// response status has been sent ends the stream with a clean EOF, which the client cannot tell from a
-	// complete stream.
+	// Stream requests an audio byte stream rather than a buffered response and defaults to false.
+	// A failure after the status is sent ends the stream with a clean EOF indistinguishable from completion.
 	Stream *bool `json:"stream,omitzero"`
-	// ResponseFormat selects the encoding; the meaning of pcm depends on the endpoint.
+	// ResponseFormat selects the encoding, defaulting to WAV; the meaning of "pcm" depends on the endpoint.
 	ResponseFormat *string `json:"response_format,omitzero"`
 }
 
 // TTSRequest requests native speech synthesis in wav, pcm (float32), or pcm16 format.
 type TTSRequest struct {
 	TTSParams
-	// Voice selects a voice by name from the model's predefined voices.
+	// Voice names a predefined voice; without a speaker reference, omission uses the configured or model default.
 	Voice *string `json:"voice,omitzero"`
-	// Extra preserves additional request fields.
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

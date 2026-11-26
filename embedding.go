@@ -39,18 +39,19 @@ const (
 
 // EmbeddingRequest is the request shared by the two native embedding endpoints.
 type EmbeddingRequest struct {
-	// Input is the input to embed. When both Input and Content are set, the server uses Input.
+	// Input supplies one input or a batch to embed and takes precedence over Content.
 	Input EmbeddingInput `json:"input,omitzero"`
-	// Content is the legacy name for Input.
+	// Content supplies the inputs when Input is absent; the server requires at least one of the two members.
 	Content EmbeddingInput `json:"content,omitzero"`
-	// Model selects the model in router mode.
+	// Model is required in router mode to select a model and is ignored in single-model mode.
 	Model string `json:"model,omitzero"`
-	// Normalize specifies the norm for pooled vectors: -1 (none), 0 (max absolute), 1 (L1),
-	// 2 (L2), or a larger p (p-norm). It is ignored with pooling none.
+	// Normalize selects -1 (none), 0 (max absolute), 1 (L1), 2 (L2), or a larger p (p-norm) for pooled vectors,
+	// using the server setting when omitted and having no effect with pooling none.
 	Normalize *int `json:"embd_normalize,omitzero"`
-	// EncodingFormat is validated by the server but does not change the native response.
+	// EncodingFormat accepts "float" or "base64", but the native response always uses numeric arrays.
 	EncodingFormat *EmbeddingEncodingFormat `json:"encoding_format,omitzero"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -59,10 +60,12 @@ type EmbeddingResponse []EmbeddingResult
 
 // EmbeddingResult contains the vectors for one input.
 type EmbeddingResult struct {
+	// Index is the zero-based position of this input in the request batch.
 	Index int `json:"index"`
 	// Embedding is a list containing one pooled vector, or one vector per token with pooling none.
 	Embedding []EmbeddingVector `json:"embedding"`
 
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 

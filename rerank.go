@@ -36,10 +36,11 @@ type RerankInput struct {
 // round trips, separately from absent fields. Use ClearText or ClearImage to
 // omit a field, including one originally decoded as null.
 type RerankObject struct {
-	// Text is a string or a list of fragments.
+	// Text supplies a string or fragments joined without a separator; omission contributes no text.
 	Text StringOrSlice `json:"text,omitzero"`
-	// Image is one image or a list, specified by URL, data URI, or raw base64.
-	Image StringOrSlice             `json:"image,omitzero"`
+	// Image supplies zero or more images, each specified by URL, data URI, or raw base64.
+	Image StringOrSlice `json:"image,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 
 	nullText, nullImage bool
@@ -164,14 +165,15 @@ func (v *RerankInput) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // RerankRequest ranks Documents in Jina format.
 type RerankRequest struct {
-	// Query is required by the server. The zero value is omitted; RerankText("") sends an empty query.
+	// Query is required by the server; a zero value is omitted, while RerankText("") sends an empty query.
 	Query RerankInput `json:"query,omitzero"`
 	// Documents must contain at least one candidate.
 	Documents []RerankInput `json:"documents"`
-	// Model selects the model in router mode and is echoed in the response.
+	// Model is required to select the model in router mode and overrides the echoed name when set.
 	Model string `json:"model,omitzero"`
-	// TopN limits the returned results; nil returns all, zero returns none.
-	TopN  *int32                    `json:"top_n,omitzero"`
+	// TopN limits the returned results; nil returns all, zero returns none, and negative values are rejected.
+	TopN *int32 `json:"top_n,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
@@ -179,13 +181,14 @@ type RerankRequest struct {
 type RerankResponse struct {
 	// Model identifies the model named in the request or the server's default model.
 	Model string `json:"model"`
-	// Object is "list".
+	// Object is the Jina-format discriminator "list".
 	Object string `json:"object"`
-	// Usage counts all scored pairs, including those excluded by TopN.
+	// Usage counts tokens for all scored pairs, including those excluded by TopN.
 	Usage RerankUsage `json:"usage"`
-	// Results are the selected documents and their scores.
-	Results []RerankResult            `json:"results"`
-	Extra   map[string]jsontext.Value `json:",embed"`
+	// Results lists up to TopN entries in descending score order, each identifying the document by index.
+	Results []RerankResult `json:"results"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // RerankUsage counts the tokens evaluated for all query-document pairs.
@@ -193,42 +196,46 @@ type RerankUsage struct {
 	// PromptTokens is the sum of the pair lengths in tokens.
 	PromptTokens int `json:"prompt_tokens"`
 	// TotalTokens equals PromptTokens because reranking does not generate tokens.
-	TotalTokens int                       `json:"total_tokens"`
-	Extra       map[string]jsontext.Value `json:",embed"`
+	TotalTokens int `json:"total_tokens"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // RerankResult is one Jina result.
 type RerankResult struct {
 	// Index is the zero-based document index in the request.
 	Index int `json:"index"`
-	// RelevanceScore is the model's score for the document.
-	RelevanceScore float64                   `json:"relevance_score"`
-	Extra          map[string]jsontext.Value `json:",embed"`
+	// RelevanceScore is the model's output without range enforcement, or -1e6 when embeddings are missing.
+	RelevanceScore float64 `json:"relevance_score"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // RerankTEIRequest ranks Texts in Text Embeddings Inference format.
 type RerankTEIRequest struct {
-	// Query is required by the server. The zero value is omitted; RerankText("") sends an empty query.
+	// Query is required by the server; a zero value is omitted, while RerankText("") sends an empty query.
 	Query RerankInput `json:"query,omitzero"`
 	// Texts must contain at least one candidate.
 	Texts []RerankInput `json:"texts"`
-	// Model selects the model in router mode.
+	// Model is required in router mode to select a model and is ignored in single-model mode.
 	Model string `json:"model,omitzero"`
-	// TopN limits the returned results; nil returns all, zero returns none.
+	// TopN limits the returned results; nil returns all, zero returns none, and negative values are rejected.
 	TopN *int32 `json:"top_n,omitzero"`
-	// ReturnText asks the server to echo the text of each returned document.
-	ReturnText *bool                     `json:"return_text,omitzero"`
-	Extra      map[string]jsontext.Value `json:",embed"`
+	// ReturnText asks the server to echo document text and defaults to false.
+	ReturnText *bool `json:"return_text,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
+	Extra map[string]jsontext.Value `json:",embed"`
 }
 
 // RerankTEIResult is one entry of the bare TEI result array.
 type RerankTEIResult struct {
 	// Index is the zero-based document index in the request.
 	Index int `json:"index"`
-	// Score is the model's score for the document.
+	// Score is the model's output without range enforcement, or -1e6 when embeddings are missing.
 	Score float64 `json:"score"`
 	// Text holds the concatenated document text only when ReturnText is true.
-	Text  *string                   `json:"text,omitzero"`
+	Text *string `json:"text,omitzero"`
+	// Extra holds members this type does not declare; they survive a round trip.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
