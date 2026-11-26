@@ -27,6 +27,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -37,13 +38,13 @@ import (
 type step struct{ send, until string }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // run records every session, or only the one named by the first argument.
-func run() error {
+func run(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	pcm := make([]byte, 32000)
@@ -63,6 +64,7 @@ func run() error {
 		{audio, ""},
 		{`{"type":"input_audio_buffer.commit","final":true}`, done},
 	}
+	var names []string
 	for _, tc := range []struct {
 		name, model, query string
 		steps              []step
@@ -88,18 +90,25 @@ func run() error {
 			{`{"type":"input_audio_buffer.commit"}`, done},
 		}},
 		{"tools", "tinyLFM3-Omni", "", []step{
-			{`{"type":"session.update","session":{"tools":[{"type":"function","name":"weather","parameters":{"type":"object","properties":{},"additionalProperties":false}}],"tool_choice":"required","output_modalities":["text"],"max_output_tokens":16}}`, "session.updated"},
+			{`{"type":"session.update","session":{"tools":[{"type":"function","name":"weather","defer_loading":false,"strict":true,"parameters":{"type":"object","properties":{},"additionalProperties":false}}],"tool_choice":"required","output_modalities":["text"],"max_output_tokens":16}}`, "session.updated"},
 			{item, "conversation.item.done"},
 			{`{"type":"response.create"}`, "response.done"},
 			{"tool result", "conversation.item.done"},
 		}},
 	} {
-		if len(os.Args) > 1 && tc.name != os.Args[1] {
+		if len(args) > 1 || (len(args) == 1 && tc.name != args[0]) {
+			names = append(names, tc.name)
 			continue
 		}
 		if err := record(ctx, tc.name, tc.model, tc.query, tc.steps); err != nil {
 			return fmt.Errorf("%s: %w", tc.name, err)
 		}
+		if len(args) == 1 {
+			return nil
+		}
+	}
+	if len(names) > 0 {
+		return fmt.Errorf("usage: recordrealtime [%s]; got %q", strings.Join(names, "|"), args)
 	}
 	return nil
 }

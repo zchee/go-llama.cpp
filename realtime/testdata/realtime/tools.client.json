@@ -6,6 +6,8 @@
         {
           "type": "function",
           "name": "weather",
+          "defer_loading": false,
+          "strict": true,
           "parameters": {
             "type": "object",
             "properties": {},
@@ -40,7 +42,7 @@
     "type": "conversation.item.create",
     "item": {
       "type": "function_call_output",
-      "call_id": "qphtQixshI8HnMOETg6fYVNxDkRrjLP4",
+      "call_id": "zT7rXrhytLbiiSIIpjfJLJZoYiUhopLk",
       "output": "sunny"
     }
   }

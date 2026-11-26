@@ -49,8 +49,8 @@ func (s *Session) Events() iter.Seq2[ServerEvent, error] {
 		for {
 			typ, b, err := s.conn.Read(context.Background())
 			if err != nil {
-				if normalizeCloseError(err) != nil {
-					yield(ServerEvent{}, s.client.RedactError(err))
+				if !s.localClose.Load() && websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+					yield(ServerEvent{}, s.client.RedactError(fmt.Errorf("realtime: reading server event: %w", err)))
 				}
 				return
 			}

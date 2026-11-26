@@ -27,6 +27,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"sync"
 	"sync/atomic"
 
 	"github.com/coder/websocket"
@@ -59,10 +60,11 @@ type DialOptions struct {
 
 // Session is an open realtime WebSocket connection.
 type Session struct {
-	conn    *websocket.Conn
-	client  *llama.Client
-	reading atomic.Bool
-	upgrade io.Closer
+	conn       *websocket.Conn
+	client     *llama.Client
+	reading    atomic.Bool
+	localClose atomic.Bool
+	upgrade    io.Closer
 }
 
 // Dial opens a realtime session through the HTTP client and the authentication headers of c. ctx bounds the
@@ -123,14 +125,25 @@ type upgradeTransport struct {
 func (u *upgradeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := u.next.RoundTrip(req)
 	if err == nil && resp.StatusCode == http.StatusSwitchingProtocols {
-		u.body = resp.Body
+		if rwc, ok := resp.Body.(io.ReadWriteCloser); ok {
+			body := &upgradedBody{ReadWriteCloser: rwc, close: sync.OnceValue(rwc.Close)}
+			u.body, resp.Body = body, body
+		}
 	}
 	return resp, err
 }
 
+type upgradedBody struct {
+	io.ReadWriteCloser
+	close func() error
+}
+
+func (b *upgradedBody) Close() error { return b.close() }
+
 // Close ends the session with a normal closure and waits for the server to acknowledge it. When ctx ends first,
 // the connection is closed without waiting.
 func (s *Session) Close(ctx context.Context) error {
+	s.localClose.Store(true)
 	if err := context.Cause(ctx); err != nil {
 		_ = s.CloseNow()
 		return s.client.RedactError(err)
@@ -146,7 +159,13 @@ func (s *Session) Close(ctx context.Context) error {
 
 // CloseNow closes the connection without the closing handshake.
 func (s *Session) CloseNow() error {
-	return s.client.RedactError(normalizeCloseError(s.conn.CloseNow()))
+	s.localClose.Store(true)
+	bodyErr := s.upgrade.Close()
+	err := s.conn.CloseNow()
+	if bodyErr != nil {
+		return s.client.RedactError(normalizeCloseError(bodyErr))
+	}
+	return s.client.RedactError(normalizeCloseError(err))
 }
 
 // normalizeCloseError treats closing an already closed session as success.

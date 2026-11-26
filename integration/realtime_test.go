@@ -21,10 +21,12 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,7 +56,9 @@ func realtimeDial(t *testing.T, c *llama.Client, opts *realtime.DialOptions) *re
 	}
 	timer := time.AfterFunc(time.Minute, func() { _ = s.CloseNow() })
 	t.Cleanup(func() {
-		timer.Stop()
+		if !timer.Stop() {
+			t.Error("realtime session watchdog fired before the test finished")
+		}
 		if err := s.CloseNow(); err != nil {
 			t.Error(err)
 		}
@@ -293,10 +297,12 @@ type realtimeCloseTransport struct {
 
 type realtimeCloseBody struct {
 	io.ReadWriteCloser
-	closing  context.CancelFunc
-	closed   chan struct{}
-	close    func() error
-	timedOut bool
+	closing    func()
+	blockWrite bool
+	closeCount atomic.Int32
+	closed     chan struct{}
+	close      func() error
+	timedOut   bool
 }
 
 func (tr *realtimeCloseTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -324,9 +330,22 @@ func (b *realtimeCloseBody) Read(p []byte) (int, error) {
 	}
 	return b.ReadWriteCloser.Read(p)
 }
-func (b *realtimeCloseBody) Close() error { return b.close() }
 
-func TestRealtimeCloseCancellationInterruptsHandshake(t *testing.T) {
+func (b *realtimeCloseBody) Write(p []byte) (int, error) {
+	if b.blockWrite {
+		<-b.closed
+		return 0, net.ErrClosed
+	}
+	return b.ReadWriteCloser.Write(p)
+}
+
+func (b *realtimeCloseBody) Close() error {
+	b.closeCount.Add(1)
+	return b.close()
+}
+
+func observedRealtimeDial(t *testing.T) (*realtime.Session, *realtimeCloseBody) {
+	t.Helper()
 	srv := presetRealtimeOmni.server(t)
 	base, _ := srv.Client(t)
 	tr := &realtimeCloseTransport{RoundTripper: base.HTTPClient().Transport}
@@ -335,16 +354,115 @@ func TestRealtimeCloseCancellationInterruptsHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := realtimeDial(t, c, nil)
-	realtimeUntil(t, s, realtime.SessionCreated)
 	if tr.body == nil {
 		t.Fatal("upgrade was not observed")
 	}
+	return s, tr.body
+}
+
+func TestRealtimeCloseCancellationInterruptsHandshake(t *testing.T) {
+	s, body := observedRealtimeDial(t)
+	realtimeUntil(t, s, realtime.SessionCreated)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	tr.body.closing = cancel
-	if err := s.Close(ctx); !errors.Is(err, context.Canceled) || tr.body.timedOut {
-		t.Fatalf("Close = %v, waited for unresponsive peer: %t", err, tr.body.timedOut)
+	body.closing = cancel
+	if err := s.Close(ctx); !errors.Is(err, context.Canceled) || body.timedOut {
+		t.Fatalf("Close = %v, waited for unresponsive peer: %t", err, body.timedOut)
 	}
+	if n := body.closeCount.Load(); n != 1 {
+		t.Fatalf("upgraded transport closed %d times, want once", n)
+	}
+}
+
+func TestRealtimeCloseInterruptsConcurrentHandshake(t *testing.T) {
+	tests := map[string]struct{ canceled bool }{"success: immediate": {}, "success: already canceled": {true}}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			s, body := observedRealtimeDial(t)
+			entered := make(chan struct{})
+			body.closing = sync.OnceFunc(func() { close(entered) })
+			first := make(chan error, 1)
+			go func() { first <- s.Close(t.Context()) }()
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("graceful close never reached the acknowledgment read")
+			}
+			second := make(chan error, 1)
+			go func() {
+				if !tt.canceled {
+					second <- s.CloseNow()
+					return
+				}
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				second <- s.Close(ctx)
+			}()
+			select {
+			case err := <-second:
+				if (tt.canceled && !errors.Is(err, context.Canceled)) || (!tt.canceled && err != nil) {
+					t.Fatalf("interrupting close: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("second close did not interrupt the handshake")
+			}
+			select {
+			case <-first:
+			case <-time.After(time.Second):
+				t.Fatal("graceful close still waiting after interruption")
+			}
+			if n := body.closeCount.Load(); n != 1 {
+				t.Fatalf("upgraded transport closed %d times, want once", n)
+			}
+		})
+	}
+}
+
+func TestRealtimeCloseOnce(t *testing.T) {
+	tests := map[string]struct{ immediate bool }{"success: graceful then immediate": {}, "success: immediate then graceful": {true}}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			s, body := observedRealtimeDial(t)
+			graceful := func() error { return s.Close(t.Context()) }
+			first, second := graceful, s.CloseNow
+			if tt.immediate {
+				first, second = second, first
+			}
+			for _, end := range []func() error{first, second} {
+				if err := end(); err != nil {
+					t.Fatal(err)
+				}
+				if n := body.closeCount.Load(); n != 1 {
+					t.Fatalf("upgraded transport closed %d times, want once", n)
+				}
+			}
+		})
+	}
+}
+
+func TestRealtimeEventsAfterWriteDeadlineClosesConnection(t *testing.T) {
+	s, body := observedRealtimeDial(t)
+	realtimeUntil(t, s, realtime.SessionCreated)
+	if err := s.CreateItem(t.Context(), realtime.Item{Type: "message", Role: new("user"), Content: []realtime.ContentPart{{Type: "input_text", Text: new("hello")}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateResponse(t.Context(), &realtime.ResponseConfig{OutputModalities: realtime.Nullable[[]string]{Value: new([]string{"text"})}}); err != nil {
+		t.Fatal(err)
+	}
+	realtimeUntil(t, s, realtime.ResponseOutputTextDelta)
+	body.blockWrite = true
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if err := s.CancelResponse(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("write: %v, want deadline exceeded", err)
+	}
+	for _, err := range s.Events() {
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("read after write deadline: %v, want closed connection", err)
+		}
+		return
+	}
+	t.Fatal("unfinished response ended without error")
 }
 
 func TestRealtimeCloseNowReleasesSlot(t *testing.T) {

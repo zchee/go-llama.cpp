@@ -176,6 +176,8 @@ func (v *Voice) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 
 // ClientEvent is a JSON text frame sent to the server. Audio contains PCM16 bytes, not a base64 string.
 type ClientEvent struct {
+	// Raw holds the entire frame for an unrecognized event type. When set, it is sent as-is instead of the typed fields.
+	Raw      jsontext.Value            `json:"-"`
 	Type     EventType                 `json:"type"`
 	Audio    []byte                    `json:"audio,omitzero"`
 	Final    *bool                     `json:"final,omitzero"`
@@ -183,6 +185,50 @@ type ClientEvent struct {
 	Item     *Item                     `json:"item,omitzero"`
 	Response *ResponseConfig           `json:"response,omitzero"`
 	Extra    map[string]jsontext.Value `json:",embed"`
+}
+
+// readEvent identifies a frame without interpreting members whose shape belongs to a different event type.
+func readEvent(dec *jsontext.Decoder) (EventType, jsontext.Value, error) {
+	raw, err := dec.ReadValue()
+	if err != nil {
+		return "", nil, err
+	}
+	var header struct {
+		Type EventType `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &header, dec.Options(), json.RejectUnknownMembers(false)); err != nil {
+		return "", nil, err
+	}
+	return header.Type, raw, nil
+}
+
+// UnmarshalJSONFrom decodes a known client event or retains an unknown frame in Raw.
+func (e *ClientEvent) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	kind, raw, err := readEvent(dec)
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case SessionUpdate, TranscriptionSessionUpdate, InputAudioBufferAppend, InputAudioBufferCommit, InputAudioBufferClear, ConversationItemCreate, ResponseCreate, ResponseCancel:
+		type wire ClientEvent
+		var w wire
+		if err := json.Unmarshal(raw, &w, dec.Options()); err != nil {
+			return err
+		}
+		*e = ClientEvent(w)
+	default:
+		*e = ClientEvent{Type: kind, Raw: raw.Clone()}
+	}
+	return nil
+}
+
+// MarshalJSONTo writes the retained frame or the typed client event.
+func (e ClientEvent) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if e.Raw != nil {
+		return enc.WriteValue(e.Raw)
+	}
+	type wire ClientEvent
+	return json.MarshalEncode(enc, wire(e))
 }
 
 // SessionConfig describes the session in a session event. Updates need only set the desired fields.
@@ -203,11 +249,13 @@ type SessionConfig struct {
 
 // Tool is a realtime function tool. Parameters is the function's JSON schema.
 type Tool struct {
-	Type        string                    `json:"type"`
-	Name        string                    `json:"name"`
-	Description *string                   `json:"description,omitzero"`
-	Parameters  jsontext.Value            `json:"parameters,omitzero"`
-	Extra       map[string]jsontext.Value `json:",embed"`
+	Type         string                    `json:"type"`
+	Name         string                    `json:"name"`
+	Description  *string                   `json:"description,omitzero"`
+	Parameters   jsontext.Value            `json:"parameters,omitzero"`
+	DeferLoading *bool                     `json:"defer_loading,omitzero"`
+	Strict       *bool                     `json:"strict,omitzero"`
+	Extra        map[string]jsontext.Value `json:",embed"`
 }
 
 // ResponseConfig overrides the corresponding session settings for one response.
@@ -283,6 +331,8 @@ type ContentPart struct {
 // ServerEvent is a frame received from the server. Type determines the populated fields.
 // Delta carries text, partial JSON arguments, or base64 PCM16 for ResponseOutputAudioDelta.
 type ServerEvent struct {
+	// Raw holds the entire frame for an unrecognized event type. When set, it is encoded instead of the typed fields.
+	Raw            jsontext.Value            `json:"-"`
 	Type           EventType                 `json:"type"`
 	EventID        string                    `json:"event_id"`
 	Session        *SessionConfig            `json:"session,omitzero"`
@@ -302,6 +352,39 @@ type ServerEvent struct {
 	Arguments      *string                   `json:"arguments,omitzero"`
 	Error          *EventError               `json:"error,omitzero"`
 	Extra          map[string]jsontext.Value `json:",embed"`
+}
+
+// UnmarshalJSONFrom decodes a known server event or retains an unknown frame in Raw.
+func (e *ServerEvent) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	kind, raw, err := readEvent(dec)
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case SessionCreated, SessionUpdated, InputAudioBufferCleared, InputAudioBufferCommitted,
+		ConversationItemAdded, ConversationItemDone, TranscriptionDelta, TranscriptionCompleted,
+		ResponseCreated, ResponseOutputItemAdded, ResponseOutputItemDone, ResponseContentPartAdded, ResponseContentPartDone,
+		ResponseOutputTextDelta, ResponseOutputTextDone, ResponseOutputAudioDelta, ResponseOutputAudioDone,
+		ResponseFunctionCallArgumentsDelta, ResponseFunctionCallArgumentsDone, ResponseDone, ErrorEvent:
+		type wire ServerEvent
+		var w wire
+		if err := json.Unmarshal(raw, &w, dec.Options()); err != nil {
+			return err
+		}
+		*e = ServerEvent(w)
+	default:
+		*e = ServerEvent{Type: kind, Raw: raw.Clone()}
+	}
+	return nil
+}
+
+// MarshalJSONTo writes the retained frame or the typed server event.
+func (e ServerEvent) MarshalJSONTo(enc *jsontext.Encoder) error {
+	if e.Raw != nil {
+		return enc.WriteValue(e.Raw)
+	}
+	type wire ServerEvent
+	return json.MarshalEncode(enc, wire(e))
 }
 
 // Response is the generated response in response.created or response.done.

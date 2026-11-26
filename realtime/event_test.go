@@ -20,6 +20,7 @@ import (
 	json "encoding/json/v2"
 	"fmt"
 	"log"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -99,11 +100,58 @@ func realtimeFuzzValue[T any](t *testing.T, b []byte) {
 	if err := json.Unmarshal(enc, &second); err != nil {
 		t.Fatal(err)
 	}
-	if diff := gocmp.Diff(first, second, gocmp.Comparer(func(x, y jsontext.Value) bool {
+	rawEqual := gocmp.FilterPath(func(p gocmp.Path) bool { return p.Last().Type() == reflect.TypeFor[jsontext.Value]() }, gocmp.Comparer(func(x, y jsontext.Value) bool {
+		if x == nil || y == nil {
+			return x == nil && y == nil
+		}
+		x, y = x.Clone(), y.Clone()
 		return x.Compact() == nil && y.Compact() == nil && string(x) == string(y)
-	})); diff != "" {
+	}))
+	if diff := gocmp.Diff(first, second, rawEqual); diff != "" {
 		t.Fatal(diff)
 	}
+}
+
+var futureEvents = map[string]struct{ wire string }{
+	"success: object delta":    {`{"type":"future.event","delta":{"token":1},"audio":{"rate":16000}}`},
+	"success: array delta":     {`{"delta":[1,2],"type":"future.event","response":[3]}`},
+	"success: numeric delta":   {`{"delta":3,"type":"future.event","event_id":"abc"}`},
+	"success: absent event id": {`{"type":"future.event"}`},
+}
+
+func TestRealtimeFutureEvents(t *testing.T) {
+	for name, tt := range futureEvents {
+		t.Run(name, func(t *testing.T) {
+			b := []byte(tt.wire)
+			client := jsontest.RoundTrip[realtime.ClientEvent](t, b)
+			server := jsontest.RoundTrip[realtime.ServerEvent](t, b)
+			if client.Type != "future.event" || server.Type != "future.event" {
+				t.Fatalf("event types = %q, %q", client.Type, server.Type)
+			}
+		})
+	}
+}
+
+func FuzzRealtimeClientEvent(f *testing.F) {
+	for _, tt := range futureEvents {
+		f.Add([]byte(tt.wire))
+	}
+	f.Add([]byte(`{"type":"session.update","session":{"vendor":1},"vendor":true}`))
+	for _, b := range realtimeFrames(f, "tools", "client") {
+		f.Add([]byte(b))
+	}
+	f.Fuzz(realtimeFuzzValue[realtime.ClientEvent])
+}
+
+func FuzzRealtimeServerEvent(f *testing.F) {
+	for _, tt := range futureEvents {
+		f.Add([]byte(tt.wire))
+	}
+	f.Add([]byte(`{"type":"session.updated","event_id":"a","session":{"vendor":1},"vendor":true}`))
+	for _, b := range realtimeFrames(f, "tools", "server") {
+		f.Add([]byte(b))
+	}
+	f.Fuzz(realtimeFuzzValue[realtime.ServerEvent])
 }
 
 func TestRealtimeMaxOutputTokens(t *testing.T) {
