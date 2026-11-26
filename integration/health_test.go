@@ -18,8 +18,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,6 +64,37 @@ func TestInvalidHealthResponse(t *testing.T) {
 				t.Errorf("WaitReady exchanges = %+v; want one closed 200 response", ex)
 			}
 		})
+	}
+}
+
+func TestWaitReadyRetriesResponseHeaderTimeout(t *testing.T) {
+	srv := presetStories260K.server(t)
+	tr := &http.Transport{ResponseHeaderTimeout: 10 * time.Millisecond}
+	t.Cleanup(tr.CloseIdleConnections)
+	c, err := llama.New(srv.URL, llama.WithHTTPClient(&http.Client{Transport: tr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Hold the first real response in net/http's read loop until the next poll starts.
+	var polls atomic.Int32
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GetConn: func(string) {
+			if polls.Add(1) > 1 {
+				unblock()
+			}
+		},
+		GotFirstResponseByte: func() { <-release },
+	})
+	if err := c.WaitReady(ctx); err != nil {
+		t.Fatalf("WaitReady after %d polls: %v", polls.Load(), err)
+	}
+	if polls.Load() < 2 {
+		t.Fatalf("WaitReady succeeded without polling again")
 	}
 }
 

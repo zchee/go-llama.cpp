@@ -70,6 +70,9 @@ func retryableHealthError(err error) bool {
 	if !ok {
 		return false
 	}
+	if e, ok := errors.AsType[net.Error](u.Err); ok && e.Timeout() {
+		return true
+	}
 	_, network := errors.AsType[*net.OpError](u.Err)
 	return network || errors.Is(u.Err, io.EOF) || errors.Is(u.Err, io.ErrUnexpectedEOF)
 }
