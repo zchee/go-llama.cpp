@@ -1,0 +1,8 @@
+data: {"choices":[{"text":" a","index":0,"logprobs":null,"finish_reason":null}],"created":1795715589,"model":"tinyllama-2","system_fingerprint":"b12774-171527522","object":"text_completion","id":"chatcmpl-U2sFLPgSbrZbD5GCA3ze5ZEfL6I7zB7G"}
+
+data: {"choices":[{"text":" time","index":0,"logprobs":null,"finish_reason":null}],"created":1795715589,"model":"tinyllama-2","system_fingerprint":"b12774-171527522","object":"text_completion","id":"chatcmpl-U2sFLPgSbrZbD5GCA3ze5ZEfL6I7zB7G"}
+
+data: {"choices":[{"text":"","index":0,"logprobs":null,"finish_reason":"length"}],"created":1795715589,"model":"tinyllama-2","system_fingerprint":"b12774-171527522","object":"text_completion","usage":{"completion_tokens":2,"prompt_tokens":3,"total_tokens":5,"prompt_tokens_details":{"cached_tokens":0}},"id":"chatcmpl-U2sFLPgSbrZbD5GCA3ze5ZEfL6I7zB7G","timings":{"cache_n":0,"prompt_n":3,"prompt_ms":2.862,"prompt_per_token_ms":0.9540000000000001,"prompt_per_second":1048.2180293501046,"predicted_n":2,"predicted_ms":1.84,"predicted_per_token_ms":1.84,"predicted_per_second":543.4782608695652}}
+
+data: {"error":{"code":400,"message":"request (1802 tokens) exceeds the available context size (256 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":1802,"n_ctx":256}}
+

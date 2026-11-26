@@ -26,24 +26,42 @@ import (
 // CompletionRequest is the request body of POST /v1/completions.
 //
 // It embeds llama.SamplingParams so llama.cpp sampling and generation parameters (such as Mirostat, Seed, Stop and
-// LogitBias) can be set directly in the request literal. Prompt accepts any form supported by llama.Prompt: a
-// string, token ids, a mixed sequence, an object with multimodal data, or a batch of prompts.
+// LogitBias) can be set directly in the request literal.
+//
+// Prompt accepts every form of llama.Prompt, but which forms the server takes on this route depends on how it was
+// started (handle_completions_impl in tools/server/server-context.cpp and tokenize_input_subprompt in
+// tools/server/server-common.cpp). Without a multimodal projector, a string, token ids, a mixed sequence and a
+// batch of those are accepted, and an object prompt is accepted only without multimodal_data: media is refused
+// with 400 "model does not support multimodal requests". With a projector loaded (--mmproj), the handler reads
+// the prompt as a plain string, so token ids, mixed sequences, object prompts and batches are all refused with
+// 400 "type must be string". Either way this route passes no media files to the model, so multimodal input never
+// works here; callers that need images use ChatCompletions, whose message content parts carry them.
 type CompletionRequest struct {
 	// Model selects the target model in router mode; single-model servers ignore it.
 	Model string `json:"model,omitzero"`
-	// Prompt is the prompt or batch of prompts to complete.
+	// Prompt is the prompt or batch of prompts to complete. See the type documentation for the forms this route
+	// accepts.
 	Prompt llama.Prompt `json:"prompt,omitzero"`
-	// MaxTokens is the OpenAI alias for SamplingParams.NPredict.
+	// MaxTokens is the OpenAI alias for SamplingParams.NPredict. The server reads the first spelling present, in
+	// the order n_predict, max_completion_tokens, max_tokens.
 	MaxTokens *int `json:"max_tokens,omitzero"`
-	// N is the number of completions to generate per prompt (the OpenAI alias for n_cmpl).
+	// MaxCompletionTokens is the newer OpenAI spelling of MaxTokens. It takes precedence over MaxTokens;
+	// SamplingParams.NPredict takes precedence over both.
+	MaxCompletionTokens *int `json:"max_completion_tokens,omitzero"`
+	// N is the number of completions to generate per prompt (the OpenAI alias for n_cmpl). NCmpl takes precedence
+	// when both are present.
 	N *int `json:"n,omitzero"`
+	// NCmpl is the native spelling of N and takes precedence over it.
+	NCmpl *int `json:"n_cmpl,omitzero"`
 	// Logprobs is the number of top token probabilities to return per token (the OpenAI alias for
-	// SamplingParams.NProbs).
+	// SamplingParams.NProbs). NProbs takes precedence when both are present.
 	Logprobs *int `json:"logprobs,omitzero"`
 	// Stream reports whether the server should emit server-sent events. Completions and CompletionsStream set it
 	// automatically.
 	Stream *bool `json:"stream,omitzero"`
-	// StreamOptions configures streaming behavior.
+	// StreamOptions configures streaming behavior. On this route stream_options.include_usage does not suppress
+	// the usage of the last chunk: the server writes usage and finish_reason into the final chunk of each result
+	// unconditionally (to_json_oaicompat in tools/server/server-task.cpp).
 	StreamOptions *StreamOptions `json:"stream_options,omitzero"`
 
 	llama.SamplingParams

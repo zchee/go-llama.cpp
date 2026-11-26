@@ -1,0 +1,1 @@
+{"model":"tinyllama-2","prompt":"Once upon a time","max_tokens":4,"temperature":0,"stream":true,"stream_options":{"include_usage":false}}
