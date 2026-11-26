@@ -642,20 +642,21 @@ func TestRetryLoop(t *testing.T) {
 // TestRetryWaitsAreBounded checks that no wait exceeds MaxInterval, including an InitialInterval above it and
 // the upward jitter of a capped interval.
 func TestRetryWaitsAreBounded(t *testing.T) {
-	tests := map[string]RetryPolicy{
-		"success: growth reaches the cap": {
+	tests := map[string]struct{ policy RetryPolicy }{
+		"success: growth reaches the cap": {policy: RetryPolicy{
 			MaxAttempts: 12, InitialInterval: 100 * time.Millisecond, MaxInterval: 400 * time.Millisecond, Multiplier: 3, RandomizationFactor: 0.5,
-		},
-		"success: initial interval above the cap": {
+		}},
+		"success: initial interval above the cap": {policy: RetryPolicy{
 			MaxAttempts: 6, InitialInterval: 2 * time.Second, MaxInterval: time.Second, Multiplier: 2, RandomizationFactor: 0.5,
-		},
-		"success: full jitter at the cap": {
+		}},
+		"success: full jitter at the cap": {policy: RetryPolicy{
 			MaxAttempts: 20, InitialInterval: time.Second, MaxInterval: time.Second, Multiplier: 1, RandomizationFactor: 1,
-		},
+		}},
 	}
-	for name, p := range tests {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
+				p := tt.policy
 				var starts []time.Time
 				_, err := retry(t.Context(), p, func(context.Context, int) (int, error) {
 					starts = append(starts, time.Now())
