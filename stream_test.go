@@ -146,7 +146,7 @@ func TestReadStreamDialects(t *testing.T) {
 				"whole":    strings.NewReader(tt.stream),
 				"one byte": iotest.OneByteReader(strings.NewReader(tt.stream)),
 			} {
-				got := collect(readStream[chunk](r, tt.maxEvent, http.StatusOK, http.Header{"X-Test": {"1"}}))
+				got := collect(readStream[chunk](r, tt.maxEvent, http.StatusOK, http.Header{"X-Test": {"1"}}, streamEnd{}))
 				if diff := gocmp.Diff(tt.want, got.events, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("events mismatch (-want +got):\n%s", diff)
 				}
@@ -183,7 +183,7 @@ func TestReadStreamDialects(t *testing.T) {
 func TestReadStreamStopsOnBreak(t *testing.T) {
 	r := &countingReader{r: strings.NewReader(strings.Repeat("data: {\"content\":\"a\"}\n\n", 10000))}
 	n := 0
-	for _, err := range readStream[chunk](r, 0, http.StatusOK, nil) {
+	for _, err := range readStream[chunk](r, 0, http.StatusOK, nil, endpointStreamEnd("/v1/completions")) {
 		if err != nil {
 			t.Fatal(err)
 		}

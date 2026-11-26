@@ -139,7 +139,8 @@ func (c *Client) Completions(ctx context.Context, req *CompletionRequest, opts .
 // CompletionsStream sends a streaming text completion request (POST /v1/completions) and yields each streamed
 // chunk until the server sends "[DONE]", an error occurs, or the caller stops iterating.
 //
-// Stream in req is forced to true without modifying req.
+// Stream in req is forced to true without modifying req. A stream that ends before the "[DONE]"
+// marker yields an error matching llama.ErrIncompleteStream.
 func (c *Client) CompletionsStream(ctx context.Context, req *CompletionRequest, opts ...llama.RequestOption) iter.Seq2[*CompletionResponse, error] {
 	var body CompletionRequest
 	if req != nil {

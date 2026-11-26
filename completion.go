@@ -78,6 +78,10 @@ func (r *completionResults) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		if err := json.UnmarshalDecode(dec, &results); err != nil {
 			return err
 		}
+		// The server asserts at least one result for a valid request (GGML_ASSERT(!arr.empty())).
+		if len(results) == 0 {
+			return errors.New("llama: empty completion result array")
+		}
 		for _, result := range results {
 			if result == nil {
 				return errors.New("llama: null completion in result array")
@@ -89,6 +93,49 @@ func (r *completionResults) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	}
 	return nil
 }
+
+// nativeStreamRequest supplies the lower bound even if a connection drops before another result starts.
+func nativeStreamRequest(body any, request *http.Request) (int, []string) {
+	var fields []string
+	var prompts, count int
+	var n *int
+	var extra map[string]jsontext.Value
+	switch r := body.(type) {
+	case *CompletionRequest:
+		if r != nil {
+			prompts, n, extra, fields = len(r.Prompt.Batch()), r.NCmpl, r.Extra, r.ResponseFields
+		}
+	case *InfillRequest:
+		if r != nil {
+			n, extra, fields = r.NCmpl, r.Extra, r.ResponseFields
+		}
+	default:
+		// For raw Stream calls read the already encoded body; do not invoke a user's marshaler twice.
+		if request != nil && request.GetBody != nil {
+			rd, err := request.GetBody()
+			if err == nil {
+				defer rd.Close()
+				var params struct {
+					Prompt         Prompt   `json:"prompt"`
+					N              int      `json:"n"`
+					NCmpl          *int     `json:"n_cmpl"`
+					ResponseFields []string `json:"response_fields"`
+				}
+				if json.UnmarshalRead(rd, &params) == nil {
+					prompts, n, count, fields = len(params.Prompt.Batch()), params.NCmpl, params.N, params.ResponseFields
+				}
+			}
+		}
+	}
+	if n != nil {
+		count = *n
+	} else if alias := extra["n"]; alias != nil {
+		_ = json.Unmarshal(alias, &count)
+	}
+	return max(1, prompts) * max(1, count), fields
+}
+
+var errNilCompletion = errors.New("llama: nil completion request")
 
 // Completion generates exactly one native text completion. Use CompletionBatch for requests returning several results.
 func (c *Client) Completion(ctx context.Context, req *CompletionRequest, opts ...RequestOption) (*CompletionResponse, error) {
@@ -104,20 +151,37 @@ func (c *Client) Completion(ctx context.Context, req *CompletionRequest, opts ..
 
 // CompletionBatch returns all completions, including a single completion as a one-element slice.
 func (c *Client) CompletionBatch(ctx context.Context, req *CompletionRequest, opts ...RequestOption) ([]*CompletionResponse, error) {
-	if req != nil && req.Stream != nil && *req.Stream {
+	if req == nil {
+		return nil, errNilCompletion
+	}
+	if req.Stream != nil && *req.Stream {
 		cp := *req
 		cp.Stream = new(false)
 		req = &cp
 	}
-	return Call[completionResults](ctx, c, http.MethodPost, "/completion", req, opts...)
+	return requireCompletionResults(Call[completionResults](ctx, c, http.MethodPost, "/completion", req, opts...))
+}
+
+func requireCompletionResults(results completionResults, err error) ([]*CompletionResponse, error) {
+	if err == nil && len(results) == 0 {
+		return nil, errors.New("llama: expected at least one completion result")
+	}
+	return results, err
 }
 
 // CompletionStream streams progress and token events followed by a final result for each prompt and completion.
+// A stream that ends by itself before a final frame for each of the len(prompts)*NCmpl results, or whose last
+// frame is not final, yields an error matching ErrIncompleteStream; a caller's break or a canceled ctx does not.
+//
+// The server projects response_fields onto final frames only; partial frames always carry stop:false,
+// so a final frame whose projection removed stop is still recognized by the absence of stop. When the
+// projection removes index, final frames are counted but cannot be attributed to individual results.
+// A frame lost in the middle of a result cannot be detected if every expected final frame still arrives.
 func (c *Client) CompletionStream(ctx context.Context, req *CompletionRequest, opts ...RequestOption) iter.Seq2[*CompletionResponse, error] {
-	var cp CompletionRequest
-	if req != nil {
-		cp = *req
+	if req == nil {
+		return singleUseStream(func(yield func(*CompletionResponse, error) bool) { yield(nil, errNilCompletion) })
 	}
+	cp := *req
 	cp.Stream = new(true)
 	return Stream[CompletionResponse](ctx, c, http.MethodPost, "/completion", &cp, opts...)
 }

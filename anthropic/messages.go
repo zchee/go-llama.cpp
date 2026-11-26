@@ -181,6 +181,7 @@ func (c *Client) Messages(ctx context.Context, req *MessagesRequest, opts ...lla
 
 // MessagesStream generates a stream of named events with POST /v1/messages. The stream ends at EOF after
 // message_stop, without a [DONE] frame. An error event yields an *llama.APIError and ends iteration.
+// A stream that ends without a message_stop event yields an error matching llama.ErrIncompleteStream.
 func (c *Client) MessagesStream(ctx context.Context, req *MessagesRequest, opts ...llama.RequestOption) iter.Seq2[*MessageEvent, error] {
 	return llama.Stream[MessageEvent](ctx, c.c, http.MethodPost, "/v1/messages", req.withStream(true), opts...)
 }

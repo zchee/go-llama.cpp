@@ -259,6 +259,7 @@ func (c *Client) ChatCompletions(ctx context.Context, req *ChatCompletionRequest
 }
 
 // ChatCompletionsStream streams assistant message deltas until the server's [DONE] marker without changing req.
+// A stream that ends before the "[DONE]" marker yields an error matching llama.ErrIncompleteStream.
 func (c *Client) ChatCompletionsStream(ctx context.Context, req *ChatCompletionRequest, opts ...llama.RequestOption) iter.Seq2[*ChatCompletionChunk, error] {
 	var r ChatCompletionRequest
 	if req != nil {

@@ -18,9 +18,11 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -227,6 +229,65 @@ func TestCompletionNativeErrors(t *testing.T) {
 			e := ReadAPIError(&http.Response{StatusCode: tt.status, Body: io.NopCloser(bytes.NewReader(data))})
 			if e.Code != tt.status || e.Type != tt.kind || e.Message == "" {
 				t.Fatalf("server error = %+v, want %d %s", e, tt.status, tt.kind)
+			}
+		})
+	}
+}
+
+// TestCompletionResultsNeverEmpty pins the server contract that a valid request always carries at
+// least one result: an empty array and an empty 200 body are decode-time and call-time errors.
+func TestCompletionResultsNeverEmpty(t *testing.T) {
+	var results completionResults
+	if err := json.Unmarshal([]byte(`[]`), &results); err == nil || !strings.Contains(err.Error(), "empty completion result") {
+		t.Errorf("decoding []: %v, want an empty-result error", err)
+	}
+	if _, err := requireCompletionResults(nil, nil); err == nil || !strings.Contains(err.Error(), "at least one completion") {
+		t.Errorf("empty body: %v, want an at-least-one error", err)
+	}
+	if one, err := requireCompletionResults(completionResults{{}}, nil); err != nil || len(one) != 1 {
+		t.Errorf("one result: %v, %v", one, err)
+	}
+	sentinel := errors.New("sentinel")
+	if _, err := requireCompletionResults(nil, sentinel); !errors.Is(err, sentinel) {
+		t.Errorf("transport error replaced by %v", err)
+	}
+}
+
+// TestCompletionNilRequestsRefused checks that a nil request is refused before any HTTP request:
+// the base URL below is unroutable, so a sent request would surface a connection error instead.
+func TestCompletionNilRequestsRefused(t *testing.T) {
+	c, err := New("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	tests := map[string]struct {
+		err  error
+		want error
+	}{
+		"error: Completion nil":  {func() error { _, err := c.Completion(ctx, nil); return err }(), errNilCompletion},
+		"error: Batch nil":       {func() error { _, err := c.CompletionBatch(ctx, nil); return err }(), errNilCompletion},
+		"error: Infill nil":      {func() error { _, err := c.Infill(ctx, nil); return err }(), errNilInfill},
+		"error: InfillBatch nil": {func() error { _, err := c.InfillBatch(ctx, nil); return err }(), errNilInfill},
+		"error: Stream nil": {func() error {
+			var last error
+			for _, err := range c.CompletionStream(ctx, nil) {
+				last = err
+			}
+			return last
+		}(), errNilCompletion},
+		"error: InfillStream nil": {func() error {
+			var last error
+			for _, err := range c.InfillStream(ctx, nil) {
+				last = err
+			}
+			return last
+		}(), errNilInfill},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if !errors.Is(tt.err, tt.want) {
+				t.Errorf("error = %v, want %v", tt.err, tt.want)
 			}
 		})
 	}

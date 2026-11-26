@@ -106,7 +106,8 @@ func (c *Client) Responses(ctx context.Context, req *ResponsesRequest, opts ...l
 	return llama.Call[*Response](ctx, c.c, http.MethodPost, "/v1/responses", responsesStreamMode(req, false), opts...)
 }
 
-// ResponsesStream creates a streaming response. The sequence ends at EOF after response.completed.
+// ResponsesStream creates a streaming response. The sequence ends at EOF after response.completed;
+// a stream that ends without a response.completed event yields an error matching llama.ErrIncompleteStream.
 func (c *Client) ResponsesStream(ctx context.Context, req *ResponsesRequest, opts ...llama.RequestOption) iter.Seq2[*ResponseEvent, error] {
 	return llama.Stream[ResponseEvent](ctx, c.c, http.MethodPost, "/v1/responses", responsesStreamMode(req, true), opts...)
 }

@@ -25,7 +25,7 @@ import (
 )
 
 // InfillRequest generates text between InputPrefix and InputSuffix. Each accepts text or a flat array
-// of strings and token ids. The optional Prompt begins the generated middle, not the prefix.
+// of strings and token ids. The server appends Prompt to the input prefix, before the FIM middle token.
 type InfillRequest struct {
 	SamplingParams
 	InputPrefix InfillInput               `json:"input_prefix"`
@@ -115,6 +115,8 @@ type InfillContext struct {
 	Extra    map[string]jsontext.Value `json:",embed"`
 }
 
+var errNilInfill = errors.New("llama: nil infill request")
+
 // Infill generates one fill-in-the-middle result. The model must support infill tokens.
 func (c *Client) Infill(ctx context.Context, req *InfillRequest, opts ...RequestOption) (*CompletionResponse, error) {
 	results, err := c.InfillBatch(ctx, req, opts...)
@@ -129,20 +131,24 @@ func (c *Client) Infill(ctx context.Context, req *InfillRequest, opts ...Request
 
 // InfillBatch returns every infill generated for the request, including siblings requested with NCmpl.
 func (c *Client) InfillBatch(ctx context.Context, req *InfillRequest, opts ...RequestOption) ([]*CompletionResponse, error) {
-	if req != nil && req.Stream != nil && *req.Stream {
+	if req == nil {
+		return nil, errNilInfill
+	}
+	if req.Stream != nil && *req.Stream {
 		cp := *req
 		cp.Stream = new(false)
 		req = &cp
 	}
-	return Call[completionResults](ctx, c, http.MethodPost, "/infill", req, opts...)
+	return requireCompletionResults(Call[completionResults](ctx, c, http.MethodPost, "/infill", req, opts...))
 }
 
-// InfillStream streams fill-in-the-middle results without modifying req.
+// InfillStream streams fill-in-the-middle results without modifying req. Projected final frames have
+// the same detection and indexing limits as CompletionStream.
 func (c *Client) InfillStream(ctx context.Context, req *InfillRequest, opts ...RequestOption) iter.Seq2[*CompletionResponse, error] {
-	var cp InfillRequest
-	if req != nil {
-		cp = *req
+	if req == nil {
+		return singleUseStream(func(yield func(*CompletionResponse, error) bool) { yield(nil, errNilInfill) })
 	}
+	cp := *req
 	cp.Stream = new(true)
 	return Stream[CompletionResponse](ctx, c, http.MethodPost, "/infill", &cp, opts...)
 }

@@ -25,6 +25,8 @@ import (
 	"iter"
 	"mime"
 	"net/http"
+	"slices"
+	"strings"
 	"sync/atomic"
 
 	sse "github.com/tmaxmax/go-sse"
@@ -33,6 +35,9 @@ import (
 // ErrStreamConsumed is yielded when a stream returned by Stream is ranged over a second time. A stream sends its
 // request when the range loop starts and can be consumed only once.
 var ErrStreamConsumed = errors.New("llama: stream already consumed")
+
+// ErrIncompleteStream means a stream ended without its endpoint's terminal frame or frames.
+var ErrIncompleteStream = errors.New("llama: incomplete event stream")
 
 // streamDone is the data of the event that ends the streams of the OpenAI-compatible completion endpoints.
 const streamDone = "[DONE]"
@@ -47,13 +52,11 @@ const streamDone = "[DONE]"
 // Events carrying an error, either "data: {"error": {...}}" or an event named "error", are yielded as an
 // *APIError and end the stream; their StatusCode is the status of the stream response. Comment lines (keep-alive
 // pings) are skipped. A body that ends inside an event yields an error wrapping io.ErrUnexpectedEOF.
+// A completion, infill, Responses or Messages stream that ends before its terminal frame yields
+// ErrIncompleteStream. The /models/sse subscription has no terminal frame, so EOF on server shutdown
+// ends it normally. Unknown endpoints also accept EOF at a frame boundary.
 func Stream[T any](ctx context.Context, c *Client, method, path string, body any, opts ...RequestOption) iter.Seq2[*T, error] {
-	var used atomic.Bool
-	return func(yield func(*T, error) bool) {
-		if used.Swap(true) {
-			yield(nil, ErrStreamConsumed)
-			return
-		}
+	return singleUseStream(func(yield func(*T, error) bool) {
 		resp, err := c.do(ctx, method, path, body, "text/event-stream", opts)
 		if err != nil {
 			yield(nil, err)
@@ -64,7 +67,11 @@ func Stream[T any](ctx context.Context, c *Client, method, path string, body any
 			yield(nil, c.RedactError(err))
 			return
 		}
-		for v, err := range readStream[T](resp.Body, c.maxEventSize, resp.StatusCode, resp.Header) {
+		end := endpointStreamEnd(path)
+		if end.marker == nativeFinal {
+			end.setNativeRequest(nativeStreamRequest(body, resp.Request))
+		}
+		for v, err := range readStream[T](resp.Body, c.maxEventSize, resp.StatusCode, resp.Header, end) {
 			if err != nil && ctx.Err() != nil {
 				err = fmt.Errorf("llama: stream interrupted: %w", context.Cause(ctx))
 			}
@@ -73,14 +80,125 @@ func Stream[T any](ctx context.Context, c *Client, method, path string, body any
 				return
 			}
 		}
+	})
+}
+
+func singleUseStream[T any](seq iter.Seq2[*T, error]) iter.Seq2[*T, error] {
+	var used atomic.Bool
+	return func(yield func(*T, error) bool) {
+		if used.Swap(true) {
+			yield(nil, ErrStreamConsumed)
+			return
+		}
+		seq(yield)
 	}
 }
 
-// DecodeStream decodes a server-sent event stream read from r into T values with the rules of Stream, for
-// example to replay a recorded stream. maxEventSize limits the size of one event; zero or less selects
-// DefaultMaxEventSize. Errors carried by events are yielded as *APIError with a zero StatusCode.
+// DecodeStream decodes SSE framing without checking for an endpoint-specific terminal frame. Use
+// DecodeEndpointStream to distinguish a complete response from a recording cut at a frame boundary.
+// maxEventSize limits the size of one event; zero or less selects DefaultMaxEventSize. Errors carried
+// by events are yielded as *APIError with a zero StatusCode.
 func DecodeStream[T any](r io.Reader, maxEventSize int) iter.Seq2[*T, error] {
-	return readStream[T](r, maxEventSize, 0, nil)
+	return readStream[T](r, maxEventSize, 0, nil, streamEnd{})
+}
+
+// DecodeEndpointStream decodes recorded events with the same terminal checks as Stream for path.
+// For /completion and /infill, expectedResults is the number of prompts times the number of completions
+// per prompt; zero checks only for results observable in the stream. Pass the request's response_fields
+// as responseFields when replaying a projected native stream. Other endpoints ignore these arguments.
+// The reader and event size limit follow DecodeStream.
+func DecodeEndpointStream[T any](r io.Reader, maxEventSize int, path string, expectedResults int, responseFields ...string) iter.Seq2[*T, error] {
+	end := endpointStreamEnd(path)
+	end.setNativeRequest(expectedResults, responseFields)
+	return readStream[T](r, maxEventSize, 0, nil, end)
+}
+
+const nativeFinal = "native completion result"
+
+type streamEnd struct {
+	marker              string
+	expected            int
+	indexes             map[int]bool
+	anonymous           int
+	omitStop, omitIndex bool
+	lastFinal           bool
+}
+
+func (e *streamEnd) setNativeRequest(expected int, fields []string) {
+	e.expected = expected
+	e.omitStop = len(fields) > 0 && !slices.Contains(fields, "stop")
+	e.omitIndex = len(fields) > 0 && !slices.Contains(fields, "index")
+}
+
+func endpointStreamEnd(path string) streamEnd {
+	path, _, _ = strings.Cut(path, "?")
+	switch path {
+	case "/completion", "/completions", "/infill":
+		return streamEnd{marker: nativeFinal}
+	case "/v1/completions", "/chat/completions", "/v1/chat/completions":
+		return streamEnd{marker: streamDone}
+	case "/responses", "/v1/responses":
+		return streamEnd{marker: "response.completed"}
+	case "/v1/messages":
+		return streamEnd{marker: "message_stop"}
+	default:
+		return streamEnd{}
+	}
+}
+
+func (e *streamEnd) observe(event string, value any, data []byte) error {
+	if e.marker != nativeFinal {
+		e.lastFinal = event == e.marker
+		return nil
+	}
+	var stop *bool
+	var index *int
+	if result, ok := value.(*CompletionResponse); ok {
+		stop, index = result.Stop, result.Index
+	} else {
+		var frame struct {
+			Stop  *bool `json:"stop"`
+			Index *int  `json:"index"`
+		}
+		if err := json.Unmarshal(data, &frame); err != nil {
+			return err
+		}
+		stop, index = frame.Stop, frame.Index
+	}
+	// Only final frames undergo response_fields projection; every partial frame carries stop:false.
+	e.lastFinal = ((stop == nil && e.omitStop) || (stop != nil && *stop)) && (index != nil || e.omitIndex)
+	if index != nil {
+		if e.indexes == nil {
+			e.indexes = make(map[int]bool)
+		}
+		e.indexes[*index] = e.lastFinal
+	} else if e.lastFinal {
+		e.anonymous++
+	}
+	return nil
+}
+
+func (e *streamEnd) missing() error {
+	switch e.marker {
+	case "":
+		return nil
+	case nativeFinal:
+		final := e.anonymous
+		for _, stopped := range e.indexes {
+			if stopped {
+				final++
+			}
+		}
+		want := max(1, e.expected, len(e.indexes))
+		if !e.lastFinal || final < want {
+			return fmt.Errorf("%w: received %d final native results, expected at least %d and a final frame last", ErrIncompleteStream, final, want)
+		}
+	default:
+		if !e.lastFinal || e.marker == streamDone {
+			return fmt.Errorf("%w: missing %s", ErrIncompleteStream, e.marker)
+		}
+	}
+	return nil
 }
 
 // checkEventStream rejects a successful response that is not an event stream, for example a JSON body returned
@@ -95,15 +213,20 @@ func checkEventStream(resp *http.Response) error {
 }
 
 // readStream decodes the events of r. status and header are copied into the APIError of an error event.
-func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header) iter.Seq2[*T, error] {
+func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header, rule streamEnd) iter.Seq2[*T, error] {
 	if maxEventSize <= 0 {
 		maxEventSize = DefaultMaxEventSize
 	}
 	return func(yield func(*T, error) bool) {
+		end := rule
 		tr := &tailReader{r: r}
 		for ev, err := range sse.Read(tr, &sse.ReadConfig{MaxEventSize: maxEventSize}) {
 			if err != nil {
-				yield(nil, fmt.Errorf("llama: reading event stream: %w", err))
+				if missing := end.missing(); errors.Is(err, io.ErrUnexpectedEOF) && missing != nil {
+					yield(nil, fmt.Errorf("%w: %w", missing, err))
+				} else {
+					yield(nil, fmt.Errorf("llama: reading event stream: %w", err))
+				}
 				return
 			}
 			if ev.Type == "error" {
@@ -114,6 +237,9 @@ func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header
 				continue
 			}
 			if ev.Data == streamDone {
+				if end.marker != "" && end.marker != streamDone {
+					yield(nil, fmt.Errorf("%w: unexpected [DONE], want %s", ErrIncompleteStream, end.marker))
+				}
 				return
 			}
 			data := []byte(ev.Data)
@@ -126,12 +252,23 @@ func readStream[T any](r io.Reader, maxEventSize, status int, header http.Header
 				yield(nil, fmt.Errorf("llama: decoding event: %w", err))
 				return
 			}
+			if ev.Data == "null" {
+				// A native stream announces each result after the first with a bare null
+				// (server_task_result_cmpl_partial::to_json, server-task.cpp:1031-1033): a result
+				// began and its final frame is still owed.
+				end.lastFinal = false
+			} else if err := end.observe(ev.Type, v, data); err != nil {
+				yield(nil, fmt.Errorf("llama: decoding native stream fields: %w", err))
+				return
+			}
 			if !yield(v, nil) {
 				return
 			}
 		}
 		if tr.truncated() {
-			yield(nil, fmt.Errorf("llama: event stream ended inside an event: %w", io.ErrUnexpectedEOF))
+			yield(nil, fmt.Errorf("%w: stream ended inside an event: %w", ErrIncompleteStream, io.ErrUnexpectedEOF))
+		} else if err := end.missing(); err != nil {
+			yield(nil, err)
 		}
 	}
 }
