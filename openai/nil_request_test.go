@@ -15,11 +15,11 @@
 package openai
 
 import (
-	"iter"
 	"net/http/httptrace"
 	"testing"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
 func TestNilRequiredRequest(t *testing.T) {
@@ -37,11 +37,11 @@ func TestNilRequiredRequest(t *testing.T) {
 		want string
 	}{
 		"error: ChatCompletions":       {requestError(c.ChatCompletions(ctx, nil)), "openai: nil chat completions request"},
-		"error: ChatCompletionsStream": {streamError(t, c.ChatCompletionsStream(ctx, nil)), "openai: nil chat completions stream request"},
+		"error: ChatCompletionsStream": {jsontest.SingleErrorStream(t, c.ChatCompletionsStream(ctx, nil), llama.ErrStreamConsumed), "openai: nil chat completions stream request"},
 		"error: ChatInputTokens":       {requestError(c.ChatInputTokens(ctx, nil)), "openai: nil chat input tokens request"},
 		"error: ControlChatCompletion": {requestError(c.ControlChatCompletion(ctx, nil)), "openai: nil control chat completion request"},
 		"error: Completions":           {requestError(c.Completions(ctx, nil)), "openai: nil completions request"},
-		"error: CompletionsStream":     {streamError(t, c.CompletionsStream(ctx, nil)), "openai: nil completions stream request"},
+		"error: CompletionsStream":     {jsontest.SingleErrorStream(t, c.CompletionsStream(ctx, nil), llama.ErrStreamConsumed), "openai: nil completions stream request"},
 		"error: Embeddings":            {requestError(c.Embeddings(ctx, nil)), "openai: nil embeddings request"},
 	}
 	for name, tt := range tests {
@@ -51,15 +51,4 @@ func TestNilRequiredRequest(t *testing.T) {
 			}
 		})
 	}
-}
-
-func streamError[T any](t *testing.T, seq iter.Seq2[*T, error]) error {
-	t.Helper()
-	for v, err := range seq {
-		if v != nil {
-			t.Errorf("unexpected stream value for nil request: %v", v)
-		}
-		return err
-	}
-	return nil
 }
