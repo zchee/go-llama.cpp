@@ -15,6 +15,7 @@
 package llama
 
 import (
+	"context"
 	"iter"
 	"net/http/httptrace"
 	"testing"
@@ -28,41 +29,49 @@ func TestNilRequiredRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := base
-	ctx := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(hostPort string) {
-		t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
-	}})
+	ctx := func(t *testing.T) context.Context {
+		return httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(hostPort string) {
+			t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
+		}})
+	}
 	requestError := func(_ any, err error) error { return err }
-	completionStream := func() iter.Seq2[*CompletionResponse, error] { return c.CompletionStream(ctx, nil) }
-	infillStream := func() iter.Seq2[*CompletionResponse, error] { return c.InfillStream(ctx, nil) }
 	tests := map[string]struct {
-		got  error
+		call func(*testing.T) error
 		want string
 	}{
-		"error: Completion":       {requestError(c.Completion(ctx, nil)), "llama: nil completion request"},
-		"error: CompletionBatch":  {requestError(c.CompletionBatch(ctx, nil)), "llama: nil completion batch request"},
-		"error: CompletionStream": {jsontest.SingleErrorStream(t, completionStream, ErrStreamConsumed), "llama: nil completion stream request"},
-		"error: Infill":           {requestError(c.Infill(ctx, nil)), "llama: nil infill request"},
-		"error: InfillBatch":      {requestError(c.InfillBatch(ctx, nil)), "llama: nil infill batch request"},
-		"error: InfillStream":     {jsontest.SingleErrorStream(t, infillStream, ErrStreamConsumed), "llama: nil infill stream request"},
-		"error: ApplyTemplate":    {requestError(c.ApplyTemplate(ctx, nil)), "llama: nil apply template request"},
-		"error: Detokenize":       {requestError(c.Detokenize(ctx, nil)), "llama: nil detokenize request"},
-		"error: DownloadModel":    {requestError(c.DownloadModel(ctx, nil)), "llama: nil download model request"},
-		"error: Embedding":        {requestError(c.Embedding(ctx, nil)), "llama: nil embedding request"},
-		"error: Embeddings":       {requestError(c.Embeddings(ctx, nil)), "llama: nil embeddings request"},
-		"error: LoadModel":        {requestError(c.LoadModel(ctx, nil)), "llama: nil load model request"},
-		"error: Rerank":           {requestError(c.Rerank(ctx, nil)), "llama: nil rerank request"},
-		"error: RerankTEI":        {requestError(c.RerankTEI(ctx, nil)), "llama: nil rerank TEI request"},
-		"error: RestoreSlot":      {requestError(c.RestoreSlot(ctx, 0, nil)), "llama: nil restore slot request"},
-		"error: SaveSlot":         {requestError(c.SaveSlot(ctx, 0, nil)), "llama: nil save slot request"},
-		"error: SetProps":         {requestError(c.SetProps(ctx, nil)), "llama: nil set props request"},
-		"error: Tokenize":         {requestError(c.Tokenize(ctx, nil)), "llama: nil tokenize request"},
-		"error: UnloadModel":      {requestError(c.UnloadModel(ctx, nil)), "llama: nil unload model request"},
-		"error: TTS":              {requestError(c.TTS(ctx, nil)), "llama: nil TTS request"},
+		"error: Completion":      {func(t *testing.T) error { return requestError(c.Completion(ctx(t), nil)) }, "llama: nil completion request"},
+		"error: CompletionBatch": {func(t *testing.T) error { return requestError(c.CompletionBatch(ctx(t), nil)) }, "llama: nil completion batch request"},
+		"error: CompletionStream": {func(t *testing.T) error {
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*CompletionResponse, error] {
+				return c.CompletionStream(ctx(t), nil)
+			}, ErrStreamConsumed)
+		}, "llama: nil completion stream request"},
+		"error: Infill":      {func(t *testing.T) error { return requestError(c.Infill(ctx(t), nil)) }, "llama: nil infill request"},
+		"error: InfillBatch": {func(t *testing.T) error { return requestError(c.InfillBatch(ctx(t), nil)) }, "llama: nil infill batch request"},
+		"error: InfillStream": {func(t *testing.T) error {
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*CompletionResponse, error] {
+				return c.InfillStream(ctx(t), nil)
+			}, ErrStreamConsumed)
+		}, "llama: nil infill stream request"},
+		"error: ApplyTemplate": {func(t *testing.T) error { return requestError(c.ApplyTemplate(ctx(t), nil)) }, "llama: nil apply template request"},
+		"error: Detokenize":    {func(t *testing.T) error { return requestError(c.Detokenize(ctx(t), nil)) }, "llama: nil detokenize request"},
+		"error: DownloadModel": {func(t *testing.T) error { return requestError(c.DownloadModel(ctx(t), nil)) }, "llama: nil download model request"},
+		"error: Embedding":     {func(t *testing.T) error { return requestError(c.Embedding(ctx(t), nil)) }, "llama: nil embedding request"},
+		"error: Embeddings":    {func(t *testing.T) error { return requestError(c.Embeddings(ctx(t), nil)) }, "llama: nil embeddings request"},
+		"error: LoadModel":     {func(t *testing.T) error { return requestError(c.LoadModel(ctx(t), nil)) }, "llama: nil load model request"},
+		"error: Rerank":        {func(t *testing.T) error { return requestError(c.Rerank(ctx(t), nil)) }, "llama: nil rerank request"},
+		"error: RerankTEI":     {func(t *testing.T) error { return requestError(c.RerankTEI(ctx(t), nil)) }, "llama: nil rerank TEI request"},
+		"error: RestoreSlot":   {func(t *testing.T) error { return requestError(c.RestoreSlot(ctx(t), 0, nil)) }, "llama: nil restore slot request"},
+		"error: SaveSlot":      {func(t *testing.T) error { return requestError(c.SaveSlot(ctx(t), 0, nil)) }, "llama: nil save slot request"},
+		"error: SetProps":      {func(t *testing.T) error { return requestError(c.SetProps(ctx(t), nil)) }, "llama: nil set props request"},
+		"error: Tokenize":      {func(t *testing.T) error { return requestError(c.Tokenize(ctx(t), nil)) }, "llama: nil tokenize request"},
+		"error: UnloadModel":   {func(t *testing.T) error { return requestError(c.UnloadModel(ctx(t), nil)) }, "llama: nil unload model request"},
+		"error: TTS":           {func(t *testing.T) error { return requestError(c.TTS(ctx(t), nil)) }, "llama: nil TTS request"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if tt.got == nil || tt.got.Error() != tt.want {
-				t.Errorf("error = %v, want %q", tt.got, tt.want)
+			if got := tt.call(t); got == nil || got.Error() != tt.want {
+				t.Errorf("error = %v, want %q", got, tt.want)
 			}
 		})
 	}
