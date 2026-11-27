@@ -18,7 +18,6 @@ import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
-	"slices"
 )
 
 // ResponseInput is a string prompt or an ordered list of conversation items.
@@ -33,10 +32,7 @@ func ResponseInputText(s string) ResponseInput { return ResponseInput{text: &s} 
 
 // ResponseInputItems returns a conversation encoded as an array, including an empty one.
 func ResponseInputItems(items ...ResponseItem) ResponseInput {
-	if items == nil {
-		items = []ResponseItem{}
-	}
-	return ResponseInput{items: slices.Clone(items)}
+	return ResponseInput{items: append([]ResponseItem{}, items...)}
 }
 
 // Text returns the prompt and whether the input is a string.
@@ -75,10 +71,7 @@ func ResponseContentText(s string) ResponseContent { return ResponseContent{text
 
 // ResponseContentParts returns content encoded as an array, including an empty one.
 func ResponseContentParts(parts ...ResponsePart) ResponseContent {
-	if parts == nil {
-		parts = []ResponsePart{}
-	}
-	return ResponseContent{parts: slices.Clone(parts)}
+	return ResponseContent{parts: append([]ResponsePart{}, parts...)}
 }
 
 // Text returns the text and whether the content is a string.

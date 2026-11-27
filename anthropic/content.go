@@ -45,10 +45,7 @@ func TextContent(s string) Content { return Content{text: &s} }
 
 // BlocksContent returns content encoded as an array, including an empty one.
 func BlocksContent(blocks ...ContentBlock) Content {
-	if blocks == nil {
-		blocks = []ContentBlock{}
-	}
-	return Content{blocks: slices.Clone(blocks)}
+	return Content{blocks: append([]ContentBlock{}, blocks...)}
 }
 
 // NullContent returns an explicit null instead of omitting the member.

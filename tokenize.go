@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 )
 
 // TokenizeRequest is the body sent to POST /tokenize.
@@ -53,10 +52,7 @@ func TokenizeText(text string) TokenizeContent { return TokenizeContent{text: &t
 
 // TokenizeParts returns content encoded as an array. Use TextPart and TokenPart to build its elements.
 func TokenizeParts(parts ...PromptPart) TokenizeContent {
-	if parts == nil {
-		parts = []PromptPart{}
-	}
-	return TokenizeContent{parts: slices.Clone(parts)}
+	return TokenizeContent{parts: append([]PromptPart{}, parts...)}
 }
 
 // Text returns the text and whether the content is a single string.
@@ -204,10 +200,7 @@ func TokenPieceText(text string) TokenPiece { return TokenPiece{text: text} }
 
 // TokenPieceBytes returns a piece encoded as an array of byte values, not a base64 string.
 func TokenPieceBytes(data []byte) TokenPiece {
-	if data == nil {
-		data = []byte{}
-	}
-	return TokenPiece{raw: slices.Clone(data)}
+	return TokenPiece{raw: append([]byte{}, data...)}
 }
 
 // Text returns the text and whether the piece was encoded as a string.

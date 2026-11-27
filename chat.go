@@ -19,7 +19,6 @@ import (
 	json "encoding/json/v2"
 	"fmt"
 	"reflect"
-	"slices"
 )
 
 // The chat message types of the OpenAI-compatible chat completions API. They live in this package because native
@@ -75,10 +74,7 @@ func TextContent(s string) MessageContent { return MessageContent{kind: ContentK
 
 // PartsContent returns content given as content parts, such as text and images.
 func PartsContent(parts ...ContentPart) MessageContent {
-	if parts == nil {
-		parts = []ContentPart{}
-	}
-	return MessageContent{kind: ContentKindParts, parts: slices.Clone(parts)}
+	return MessageContent{kind: ContentKindParts, parts: append([]ContentPart{}, parts...)}
 }
 
 // NullContent returns content that is an explicit JSON null.

@@ -848,10 +848,7 @@ func StringValue(s string) StringOrSlice { return StringOrSlice{values: []string
 
 // StringSlice returns a StringOrSlice encoded as an array of strings.
 func StringSlice(s ...string) StringOrSlice {
-	if s == nil {
-		s = []string{}
-	}
-	return StringOrSlice{values: slices.Clone(s)}
+	return StringOrSlice{values: append([]string{}, s...)}
 }
 
 // Strings returns a read-only view of the strings; a single string is returned as a one-element slice.
