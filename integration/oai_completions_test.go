@@ -92,6 +92,9 @@ func TestOAICompletions(t *testing.T) {
 		if count < 2 || text.Len() == 0 {
 			t.Fatalf("got %d chunks with text %q, want >= 2 chunks and non-empty text", count, text.String())
 		}
+		if len(last.Choices) == 0 {
+			t.Fatalf("last chunk = %+v, want at least one choice", last)
+		}
 		if last.Usage == nil || last.Choices[0].FinishReason == nil || *last.Choices[0].FinishReason != "length" {
 			t.Errorf("last chunk = %+v, want usage and finish_reason=length", last)
 		}
@@ -152,6 +155,9 @@ func TestOAICompletions(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if len(res.Choices) == 0 {
+			t.Fatalf("completion = %+v, want at least one choice with logprobs", res)
 		}
 		lp := res.Choices[0].Logprobs
 		if lp == nil || len(lp.Content) == 0 || lp.Content[0].Prob == nil || len(lp.Content[0].TopProbs) == 0 {

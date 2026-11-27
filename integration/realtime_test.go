@@ -121,6 +121,9 @@ func TestRealtimeTranscription(t *testing.T) {
 				case realtime.ErrorEvent:
 					t.Fatalf("transcription: %+v", ev.Error)
 				case realtime.TranscriptionDelta:
+					if ev.Delta == nil {
+						t.Fatalf("transcription delta is missing text: %+v", ev)
+					}
 					deltas.WriteString(*ev.Delta)
 				case realtime.TranscriptionCompleted:
 					if ev.Transcript == nil || deltas.Len() == 0 || *ev.Transcript != deltas.String() {
@@ -147,7 +150,7 @@ func TestRealtimeConversation(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := realtimeUntil(t, s, realtime.SessionUpdated).Session
-			if cfg.MaxOutputTokens == nil || *cfg.MaxOutputTokens != 8 {
+			if cfg == nil || cfg.MaxOutputTokens == nil || *cfg.MaxOutputTokens != 8 {
 				t.Fatalf("update not applied: %+v", cfg)
 			}
 			if err := s.CreateResponse(t.Context(), nil); err != nil {
@@ -174,6 +177,9 @@ func TestRealtimeConversation(t *testing.T) {
 				}
 				switch ev.Type {
 				case realtime.ResponseOutputAudioDelta:
+					if ev.Delta == nil {
+						t.Fatalf("audio delta is missing audio: %+v", ev)
+					}
 					b, err := base64.StdEncoding.DecodeString(*ev.Delta)
 					if err != nil || len(b)%2 != 0 || tt.mode != "audio" {
 						t.Fatalf("bad audio delta (%d bytes): %v", len(b), err)
@@ -183,11 +189,14 @@ func TestRealtimeConversation(t *testing.T) {
 					if tt.mode != "text" {
 						t.Fatal("text in audio response")
 					}
+					if ev.Delta == nil {
+						t.Fatalf("text delta is missing text: %+v", ev)
+					}
 					bytes += len(*ev.Delta)
 				case realtime.ErrorEvent:
 					t.Fatalf("response: %+v", ev.Error)
 				case realtime.ResponseDone:
-					if bytes == 0 || ev.Response.Status != "completed" || len(ev.Response.Output) != 1 {
+					if bytes == 0 || ev.Response == nil || ev.Response.Status != "completed" || len(ev.Response.Output) != 1 {
 						t.Fatalf("unexpected response after %d bytes: %+v", bytes, ev.Response)
 					}
 					return
