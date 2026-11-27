@@ -35,9 +35,7 @@ import (
 func modelsWire[T any](t *testing.T, name string) *T {
 	t.Helper()
 	data := jsontest.ReadFile(t, "testdata/models/"+name+".json")
-	v := jsontest.RoundTrip[T](t, data)
-	jsontest.NoUnknown[T](t, data, nil)
-	jsontest.InjectUnknown[T](t, data)
+	v := jsontest.CheckWire[T](t, data)
 	jsontest.CheckFallbacks[T](t)
 	return v
 }

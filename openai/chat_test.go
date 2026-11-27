@@ -34,9 +34,7 @@ import (
 func chatWire[T any](t *testing.T, data []byte) *T {
 	t.Helper()
 	jsontest.CheckFallbacks[T](t)
-	jsontest.NoUnknown[T](t, data, nil)
-	jsontest.InjectUnknown[T](t, data)
-	return jsontest.RoundTrip[T](t, data)
+	return jsontest.CheckWire[T](t, data)
 }
 
 func chatRequestWire[T any](t *testing.T, c *llama.Client, path string, data []byte) {

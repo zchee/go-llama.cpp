@@ -86,9 +86,7 @@ func TestTTSWire(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			prefix := "testdata/tts/" + tc.fixture
 			data := jsontest.ReadFile(t, prefix+".req.json")
-			parsed := jsontest.RoundTrip[TTSRequest](t, data)
-			jsontest.NoUnknown[TTSRequest](t, data, nil)
-			jsontest.InjectUnknown[TTSRequest](t, data)
+			parsed := jsontest.CheckWire[TTSRequest](t, data)
 			req, err := c.NewRequest(t.Context(), http.MethodPost, "/tts", parsed, WithModelQuery("audio"))
 			if err != nil {
 				t.Fatal(err)
