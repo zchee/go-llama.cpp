@@ -32,9 +32,10 @@
 // For a recorded event stream, EventData splits the stream into the data of its events, and each one is checked
 // the same way with the event's type.
 //
-// Comparisons keep JSON numbers exact (9007199254740993 does not equal 9007199254740992), so a Go field that
-// cannot hold a value the server sent fails the round trip. Failures runs a helper against a recording testing.TB,
-// for tests that show a helper rejects a type.
+// Comparisons keep JSON numbers exact (9007199254740993 does not equal 9007199254740992), except that two
+// non-integers that round to the same finite, nonzero float64 are equal: the server does not always print the
+// shortest spelling of a double. Failures runs a helper against a recording testing.TB, for tests that show
+// a helper rejects a type.
 //
 // A struct embedded without a JSON name (for example llama.SamplingParams) is part of its parent object and must
 // not carry a fallback of its own: encoding/json/v2 lets the shallowest fallback win, so a nested one would never
@@ -299,9 +300,9 @@ func lookup(v any, path string) any {
 	return v
 }
 
-// generic decodes JSON into maps, slices and scalars for a semantic comparison. Numbers are kept as written (see
-// number), so that a value a Go type cannot represent exactly shows up as a difference instead of being rounded on
-// both sides of the comparison.
+// generic decodes JSON into maps, slices and scalars for a semantic comparison. It preserves number spellings so
+// number.Equal can tell apart values a Go field cannot hold, such as an integer beyond float64 precision or a
+// fraction narrowed by a float32.
 func generic(t testing.TB, data []byte) any {
 	t.Helper()
 	dec := jsontext.NewDecoder(bytes.NewReader(data))
@@ -373,18 +374,31 @@ func decodeLossless(dec *jsontext.Decoder) (any, error) {
 	}
 }
 
-// number is a JSON number as written. Two numbers are equal when they denote the same rational value, so 1, 1.0
-// and 1e0 are equal while 9007199254740993 and 9007199254740992 are not.
+// number is a JSON number as written. Comparisons are exact: 1, 1.0 and 1e0 are equal while 9007199254740993
+// and 9007199254740992 are not. Non-integers may also compare equal when they round to the same finite, nonzero
+// float64 because the server does not always print the shortest spelling of a double. That treats every
+// non-integer as a printed double, which holds for llama-server. Integer values get no such allowance, so two
+// spellings of one double at or above 2^53 (9.999999999999999e+22 and 1e+23) stay unequal.
 type number string
 
-// Equal reports whether two numbers denote the same value; go-cmp uses it.
+// Equal reports whether two numbers are the same rational or, when neither is an integer, the same finite
+// nonzero float64; go-cmp uses it.
 func (n number) Equal(m number) bool {
 	a, okA := new(big.Rat).SetString(string(n))
 	b, okB := new(big.Rat).SetString(string(m))
 	if !okA || !okB {
 		return n == m
 	}
-	return a.Cmp(b) == 0
+	if a.Cmp(b) == 0 {
+		return true
+	}
+	if a.IsInt() || b.IsInt() {
+		return false
+	}
+	x, errX := strconv.ParseFloat(string(n), 64)
+	y, errY := strconv.ParseFloat(string(m), 64)
+	// Overflow reports an error, but underflow can round a nonzero fraction to zero without one.
+	return errX == nil && errY == nil && x != 0 && x == y
 }
 
 // MarshalJSONTo writes the number as written.

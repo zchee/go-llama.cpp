@@ -127,6 +127,23 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRoundTripFloat64Spelling(t *testing.T) {
+	type timing struct {
+		PromptPerSecond float64 `json:"prompt_per_second"`
+	}
+	RoundTrip[timing](t, []byte(`{"prompt_per_second":5988.0239520958085}`))
+}
+
+func TestRoundTripFloat32PrecisionLoss(t *testing.T) {
+	type value struct {
+		N float32 `json:"n"`
+	}
+	r := run(t, func(tb testing.TB) { RoundTrip[value](tb, []byte(`{"n":0.30000001192092896}`)) })
+	if r.fatal || len(r.errors) != 1 || !strings.Contains(r.errors[0], "does not round-trip") {
+		t.Errorf("RoundTrip did not report the changed float32 spelling: %v", r.errors)
+	}
+}
+
 func TestInjectUnknown(t *testing.T) {
 	r := run(t, func(tb testing.TB) { InjectUnknown[good](tb, []byte(doc)) })
 	if len(r.errors) != 0 {
@@ -388,8 +405,40 @@ func TestComparisonsKeepNumbersExact(t *testing.T) {
 			}
 		})
 	}
-	if !number("1").Equal(number("1.0e0")) || number("9007199254740993").Equal(number("9007199254740992")) {
-		t.Errorf("number.Equal does not compare values exactly")
+}
+
+func TestNumberEqual(t *testing.T) {
+	overflow := strings.Repeat("9", 309)
+	tests := map[string]struct {
+		a, b number
+		want bool
+	}{
+		"success: timing double":                      {"5988.0239520958085", "5988.023952095808", true},
+		"success: same decimal double":                {"0.1", "0.10000000000000001", true},
+		"success: negative timing double":             {"-5988.0239520958085", "-5988.023952095808", true},
+		"success: same subnormal double":              {"5e-324", "5.1e-324", true},
+		"success: same integer with decimal":          {"1", "1.0", true},
+		"success: same integer with exponent":         {"1.0", "1e0", true},
+		"success: equal underflowing rationals":       {"1.5e-400", "15e-401", true},
+		"error: adjacent large integers":              {"9007199254740993", "9007199254740992", false},
+		"error: adjacent integers with decimal":       {"9007199254740993.0", "9007199254740992.0", false},
+		"error: fraction rounds to integer":           {"1.00000000000000001", "1", false},
+		"error: overflowing integers":                 {"1e400", "2e400", false},
+		"error: overflowing integers with decimal":    {"1.5e400", "1.6e400", false},
+		"error: overflowing non-integers":             {number(overflow + ".1"), number(overflow + ".2"), false},
+		"error: different doubles":                    {"0.1", "0.1000000000000001", false},
+		"error: integer double spelled two ways":      {"9.999999999999999e+22", "1e+23", false},
+		"error: distinct fractions underflow to zero": {"1.5e-400", "1.6e-400", false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := tt.a.Equal(tt.b); got != tt.want {
+				t.Errorf("%q.Equal(%q) = %t, want %t", tt.a, tt.b, got, tt.want)
+			}
+			if got := tt.b.Equal(tt.a); got != tt.want {
+				t.Errorf("%q.Equal(%q) = %t, want %t", tt.b, tt.a, got, tt.want)
+			}
+		})
 	}
 }
 
