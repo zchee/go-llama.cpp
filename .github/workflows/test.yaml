@@ -32,13 +32,17 @@ jobs:
       - name: gofmt
         run: |
           files="$(gofmt -s -l .)"
-          printf '%s\n' "$files" >&2
-          test -z "$files"
+          if [ -n "$files" ]; then
+            printf '%s\n' "$files" >&2
+            exit 1
+          fi
       - name: gofumpt
         run: |
           files="$(go run mvdan.cc/gofumpt@v0.12.0 -l -extra .)"
-          printf '%s\n' "$files" >&2
-          test -z "$files"
+          if [ -n "$files" ]; then
+            printf '%s\n' "$files" >&2
+            exit 1
+          fi
       - name: modernize
         run: go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@v0.53.0 -test ./... ./integration/...
       - name: go vet
