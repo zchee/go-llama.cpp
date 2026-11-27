@@ -304,7 +304,8 @@ func lookup(v any, path string) any {
 func generic(t testing.TB, data []byte) any {
 	t.Helper()
 	dec := jsontext.NewDecoder(bytes.NewReader(data))
-	v, err := decodeLossless(dec)
+	var v any
+	err := json.UnmarshalDecode(dec, &v, losslessNumbers)
 	if err == nil {
 		if _, extra := dec.ReadToken(); !errors.Is(extra, io.EOF) {
 			err = errors.New("data after the top-level value")
@@ -316,61 +317,14 @@ func generic(t testing.TB, data []byte) any {
 	return v
 }
 
-// decodeLossless reads one JSON value into map[string]any, []any, string, bool, nil or number.
-func decodeLossless(dec *jsontext.Decoder) (any, error) {
-	switch dec.PeekKind() {
-	case '{':
-		if _, err := dec.ReadToken(); err != nil {
-			return nil, err
-		}
-		obj := map[string]any{}
-		for dec.PeekKind() != '}' {
-			k, err := dec.ReadToken()
-			if err != nil {
-				return nil, err
-			}
-			name := k.String()
-			v, err := decodeLossless(dec)
-			if err != nil {
-				return nil, err
-			}
-			obj[name] = v
-		}
-		_, err := dec.ReadToken()
-		return obj, err
-	case '[':
-		if _, err := dec.ReadToken(); err != nil {
-			return nil, err
-		}
-		arr := []any{}
-		for dec.PeekKind() != ']' {
-			v, err := decodeLossless(dec)
-			if err != nil {
-				return nil, err
-			}
-			arr = append(arr, v)
-		}
-		_, err := dec.ReadToken()
-		return arr, err
-	case '0':
-		v, err := dec.ReadValue()
-		return number(v), err
+var losslessNumbers = json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, dst *any) error {
+	if dec.PeekKind() != '0' {
+		return errors.ErrUnsupported
 	}
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return nil, err
-	}
-	switch tok.Kind() {
-	case 'n':
-		return nil, nil
-	case 't', 'f':
-		return tok.Bool(), nil
-	case '"':
-		return tok.String(), nil
-	default:
-		return nil, fmt.Errorf("unexpected JSON token %v", tok.Kind())
-	}
-}
+	v, err := dec.ReadValue()
+	*dst = number(v)
+	return err
+}))
 
 // number is a JSON number as written. Comparisons are exact: 1, 1.0 and 1e0 are equal while 9007199254740993
 // and 9007199254740992 are not. Non-integers may also compare equal when they round to the same finite, nonzero

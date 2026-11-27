@@ -389,6 +389,59 @@ func TestNoUnknownSeesInsideOpaqueTypes(t *testing.T) {
 	}
 }
 
+func TestGeneric(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		want  any
+		fatal bool
+		// where is a part of the failure message that locates the problem in the document.
+		where string
+	}{
+		"success: exponent spelling": {input: `1E+5`, want: number("1E+5")},
+		"success: numbers in an object and array": {
+			input: `{"n":[1.0,1e5,-0,0.1,123456789012345678901234567890,9007199254740993,1.7976931348623157e309,0.1234567890123456789012345678901234567890]}`,
+			want: map[string]any{"n": []any{
+				number("1.0"), number("1e5"), number("-0"), number("0.1"), number("123456789012345678901234567890"),
+				number("9007199254740993"), number("1.7976931348623157e309"), number("0.1234567890123456789012345678901234567890"),
+			}},
+		},
+		"success: numbers as object members at any depth": {
+			input: `{"a":1e999,"b":[{"c":-0.0}]}`,
+			want:  map[string]any{"a": number("1e999"), "b": []any{map[string]any{"c": number("-0.0")}}},
+		},
+		"success: empty containers and escaped names": {
+			input: `{"/~0~1":[{},[]],"":{"雪":"雪\n"}}`,
+			want:  map[string]any{"/~0~1": []any{map[string]any{}, []any{}}, "": map[string]any{"雪": "雪\n"}},
+		},
+		"error: duplicate member": {input: `{"x":1,"x":2}`, fatal: true},
+		"error: missing value":    {input: `{"x":}`, fatal: true, where: `within "/x"`},
+		"error: truncated array":  {input: `[`, fatal: true},
+		"error: trailing value":   {input: `true false`, fatal: true},
+		"error: invalid UTF-8":    {input: "\"\xff\"", fatal: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var got any
+			msgs, fatal := Failures(t, func(tb testing.TB) { got = generic(tb, []byte(tt.input)) })
+			if fatal != tt.fatal {
+				t.Fatalf("fatal = %t, want %t; messages: %v", fatal, tt.fatal, msgs)
+			}
+			if fatal {
+				if len(msgs) != 1 || !strings.HasPrefix(msgs[0], "decoding JSON: ") || !strings.HasSuffix(msgs[0], "\ninput: "+tt.input) {
+					t.Errorf("failure did not include the input document: %q", msgs)
+				} else if !strings.Contains(msgs[0], tt.where) {
+					t.Errorf("failure does not locate the problem with %q: %q", tt.where, msgs[0])
+				}
+				return
+			}
+			// number.Equal compares rational values, not the original spelling.
+			if diff := gocmp.Diff(tt.want, got, gocmp.Comparer(func(a, b number) bool { return a == b })); diff != "" {
+				t.Errorf("generic (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 type lossyNumber struct {
 	N     float64                   `json:"n"`
 	Extra map[string]jsontext.Value `json:",embed"`
