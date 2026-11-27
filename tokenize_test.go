@@ -120,11 +120,7 @@ func TestTokenizeErrorWire(t *testing.T) {
 
 func tokenizeFixture[T any](t *testing.T, file string) *T {
 	t.Helper()
-	data := jsontest.ReadFile(t, file)
-	got := jsontest.RoundTrip[T](t, data)
-	jsontest.InjectUnknown[T](t, data)
-	jsontest.NoUnknown[T](t, data, nil)
-	return got
+	return jsontest.CheckWire[T](t, jsontest.ReadFile(t, file))
 }
 
 func tokenizeCheckRequest[T any](t *testing.T, path, fixture string, request T) {

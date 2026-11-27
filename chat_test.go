@@ -92,9 +92,7 @@ const conversation = `[` +
 
 func TestMessageWire(t *testing.T) {
 	data := []byte(conversation)
-	got := jsontest.RoundTrip[[]Message](t, data)
-	jsontest.InjectUnknown[[]Message](t, data)
-	jsontest.NoUnknown[[]Message](t, data, nil)
+	got := jsontest.CheckWire[[]Message](t, data)
 	jsontest.CheckFallbacks[Message](t)
 	jsontest.CheckFallbacks[ContentPart](t)
 	if len(*got) != 5 || (*got)[2].Content.Kind() != ContentKindNull || !(*got)[4].Content.IsZero() {

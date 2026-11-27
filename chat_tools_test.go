@@ -120,9 +120,7 @@ func TestChatToolsWire(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			data := jsontest.ReadFile(t, "testdata/apply-template/"+tt.stem+".req.json")
-			got := jsontest.RoundTrip[chatToolsWireRequest](t, data)
-			jsontest.InjectUnknown[chatToolsWireRequest](t, data)
-			jsontest.NoUnknown[chatToolsWireRequest](t, data, nil)
+			got := jsontest.CheckWire[chatToolsWireRequest](t, data)
 			if diff := gocmp.Diff(tt.want, got.ToolChoice); diff != "" {
 				t.Errorf("tool choice differs (-want +got):\n%s", diff)
 			}

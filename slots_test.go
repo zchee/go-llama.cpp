@@ -28,9 +28,7 @@ import (
 
 func TestSlotsDebugFixture(t *testing.T) {
 	data := jsontest.ReadFile(t, "testdata/slots/used_debug.resp.json")
-	got := jsontest.RoundTrip[[]Slot](t, data)
-	jsontest.InjectUnknown[[]Slot](t, data)
-	jsontest.NoUnknown[[]Slot](t, data, nil)
+	got := jsontest.CheckWire[[]Slot](t, data)
 	jsontest.CheckFallbacks[[]Slot](t)
 
 	slots := *got

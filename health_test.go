@@ -30,9 +30,7 @@ import (
 // The fixture was recorded from llama-server v1.1.0 with integration/cmd/record.
 func TestHealthResponseWire(t *testing.T) {
 	data := jsontest.ReadFile(t, "testdata/health/ok.resp.json")
-	got := jsontest.RoundTrip[HealthResponse](t, data)
-	jsontest.InjectUnknown[HealthResponse](t, data)
-	jsontest.NoUnknown[HealthResponse](t, data, nil)
+	got := jsontest.CheckWire[HealthResponse](t, data)
 	jsontest.CheckFallbacks[HealthResponse](t)
 	if got.Status != "ok" {
 		t.Errorf("Status = %q, want %q", got.Status, "ok")
