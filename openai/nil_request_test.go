@@ -15,11 +15,13 @@
 package openai
 
 import (
+	"context"
 	"iter"
 	"net/http/httptrace"
 	"testing"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
 func TestNilRequiredRequest(t *testing.T) {
@@ -28,38 +30,45 @@ func TestNilRequiredRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := NewClient(base)
-	ctx := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(hostPort string) {
-		t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
-	}})
+	ctx := func(t *testing.T) context.Context {
+		return httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(hostPort string) {
+			t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
+		}})
+	}
 	requestError := func(_ any, err error) error { return err }
 	tests := map[string]struct {
-		got  error
+		call func(*testing.T) error
 		want string
 	}{
-		"error: ChatCompletions":       {requestError(c.ChatCompletions(ctx, nil)), "openai: nil chat completions request"},
-		"error: ChatCompletionsStream": {streamError(t, c.ChatCompletionsStream(ctx, nil)), "openai: nil chat completions stream request"},
-		"error: ChatInputTokens":       {requestError(c.ChatInputTokens(ctx, nil)), "openai: nil chat input tokens request"},
-		"error: ControlChatCompletion": {requestError(c.ControlChatCompletion(ctx, nil)), "openai: nil control chat completion request"},
-		"error: Completions":           {requestError(c.Completions(ctx, nil)), "openai: nil completions request"},
-		"error: CompletionsStream":     {streamError(t, c.CompletionsStream(ctx, nil)), "openai: nil completions stream request"},
-		"error: Embeddings":            {requestError(c.Embeddings(ctx, nil)), "openai: nil embeddings request"},
+		"error: ChatCompletions": {func(t *testing.T) error { return requestError(c.ChatCompletions(ctx(t), nil)) }, "openai: nil chat completions request"},
+		"error: ChatCompletionsStream": {func(t *testing.T) error {
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*ChatCompletionChunk, error] {
+				return c.ChatCompletionsStream(ctx(t), nil)
+			}, llama.ErrStreamConsumed)
+		}, "openai: nil chat completions stream request"},
+		"error: ChatInputTokens":       {func(t *testing.T) error { return requestError(c.ChatInputTokens(ctx(t), nil)) }, "openai: nil chat input tokens request"},
+		"error: ControlChatCompletion": {func(t *testing.T) error { return requestError(c.ControlChatCompletion(ctx(t), nil)) }, "openai: nil control chat completion request"},
+		"error: Completions":           {func(t *testing.T) error { return requestError(c.Completions(ctx(t), nil)) }, "openai: nil completions request"},
+		"error: CompletionsStream": {func(t *testing.T) error {
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*CompletionResponse, error] {
+				return c.CompletionsStream(ctx(t), nil)
+			}, llama.ErrStreamConsumed)
+		}, "openai: nil completions stream request"},
+		"error: Embeddings":           {func(t *testing.T) error { return requestError(c.Embeddings(ctx(t), nil)) }, "openai: nil embeddings request"},
+		"error: Responses":            {func(t *testing.T) error { return requestError(c.Responses(ctx(t), nil)) }, "openai: nil responses request"},
+		"error: ResponsesInputTokens": {func(t *testing.T) error { return requestError(c.ResponsesInputTokens(ctx(t), nil)) }, "openai: nil responses input tokens request"},
+		"error: ResponsesStream": {func(t *testing.T) error {
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*ResponseEvent, error] {
+				return c.ResponsesStream(ctx(t), nil)
+			}, llama.ErrStreamConsumed)
+		}, "openai: nil responses stream request"},
+		"error: Speech": {func(t *testing.T) error { return requestError(c.Speech(ctx(t), nil)) }, "openai: nil speech request"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if tt.got == nil || tt.got.Error() != tt.want {
-				t.Errorf("error = %v, want %q", tt.got, tt.want)
+			if got := tt.call(t); got == nil || got.Error() != tt.want {
+				t.Errorf("error = %v, want %q", got, tt.want)
 			}
 		})
 	}
-}
-
-func streamError[T any](t *testing.T, seq iter.Seq2[*T, error]) error {
-	t.Helper()
-	for v, err := range seq {
-		if v != nil {
-			t.Errorf("unexpected stream value for nil request: %v", v)
-		}
-		return err
-	}
-	return nil
 }

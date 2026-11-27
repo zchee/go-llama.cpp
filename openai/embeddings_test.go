@@ -50,9 +50,7 @@ func TestEmbeddingsWire(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			in := jsontest.ReadFile(t, "testdata/embeddings/"+test.fixture+".req.json")
-			jsontest.RoundTrip[EmbeddingRequest](t, in)
-			jsontest.InjectUnknown[EmbeddingRequest](t, in)
-			jsontest.NoUnknown[EmbeddingRequest](t, in, nil)
+			jsontest.CheckWire[EmbeddingRequest](t, in)
 			out := jsontest.ReadFile(t, "testdata/embeddings/"+test.fixture+".resp.json")
 			if test.code != 0 {
 				got := llama.ReadAPIError(&http.Response{StatusCode: test.code, Body: io.NopCloser(bytes.NewReader(out))})
@@ -61,9 +59,7 @@ func TestEmbeddingsWire(t *testing.T) {
 				}
 				return
 			}
-			got := jsontest.RoundTrip[EmbeddingResponse](t, out)
-			jsontest.InjectUnknown[EmbeddingResponse](t, out)
-			jsontest.NoUnknown[EmbeddingResponse](t, out, nil)
+			got := jsontest.CheckWire[EmbeddingResponse](t, out)
 			if got.Object != "list" || got.Model != test.model || len(got.Data) != test.count {
 				t.Errorf("object=%q, model=%q, results=%d; want list, %q, %d", got.Object, got.Model, len(got.Data), test.model, test.count)
 			}

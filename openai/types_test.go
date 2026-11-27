@@ -83,9 +83,7 @@ func TestMessageContentJSON(t *testing.T) {
 
 func TestToolChoiceAliases(t *testing.T) {
 	data := jsontest.ReadFile(t, "../testdata/apply-template/allowed_tools.req.json")
-	got := jsontest.RoundTrip[chatShape](t, data)
-	jsontest.InjectUnknown[chatShape](t, data)
-	jsontest.NoUnknown[chatShape](t, data, nil)
+	got := jsontest.CheckWire[chatShape](t, data)
 	jsontest.CheckFallbacks[AllowedToolChoice](t)
 	want := ToolChoiceAllowedTools("required", "weather")
 	if diff := gocmp.Diff(want, got.ToolChoice); diff != "" {
@@ -154,12 +152,6 @@ func TestNoUnknownSeesInsideSumTypes(t *testing.T) {
 		check func(tb testing.TB)
 		want  string
 	}{
-		"error: content part": {
-			check: func(tb testing.TB) {
-				jsontest.NoUnknown[MessageContent](tb, []byte(`[{"type":"text","text":"x"},{"type":"text","text":"y","future":1}]`), nil)
-			},
-			want: "/1: future",
-		},
 		"error: image of a content part": {
 			check: func(tb testing.TB) {
 				jsontest.NoUnknown[Message](tb, []byte(`{"role":"user","content":[{"type":"image_url","image_url":{"url":"u","x":1}}]}`), nil)
@@ -192,41 +184,4 @@ func TestNoUnknownSeesInsideSumTypes(t *testing.T) {
 			}
 		})
 	}
-}
-
-// The fixtures were recorded from llama-server v1.1.0 with integration/cmd/record; both endpoints answer through
-// handle_count_tokens in tools/server/server-context.cpp.
-func TestInputTokensResponseWire(t *testing.T) {
-	tests := map[string]struct {
-		resp, req  string
-		wantTokens int64
-	}{
-		"success: chat completions": {
-			resp:       "testdata/chat_completions_input_tokens/basic.resp.json",
-			req:        "testdata/chat_completions_input_tokens/basic.req.json",
-			wantTokens: 75,
-		},
-		"success: responses": {
-			resp:       "testdata/responses_input_tokens/basic.resp.json",
-			wantTokens: 45,
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			data := jsontest.ReadFile(t, tt.resp)
-			got := jsontest.RoundTrip[InputTokensResponse](t, data)
-			jsontest.InjectUnknown[InputTokensResponse](t, data)
-			jsontest.NoUnknown[InputTokensResponse](t, data, nil)
-			if got.Object != "response.input_tokens" || got.InputTokens != tt.wantTokens {
-				t.Errorf("decoded %+v, want object response.input_tokens and %d tokens", got, tt.wantTokens)
-			}
-			if tt.req != "" {
-				// The chat request shares Message with the chat completions endpoint.
-				req := jsontest.ReadFile(t, tt.req)
-				jsontest.RoundTrip[chatShape](t, req)
-				jsontest.InjectUnknown[chatShape](t, req)
-			}
-		})
-	}
-	jsontest.CheckFallbacks[InputTokensResponse](t)
 }

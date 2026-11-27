@@ -71,19 +71,23 @@ func TestEndpointExtra(t *testing.T) {
 		r, err := anthropic.NewClient(c).Messages(ctx, &anthropic.MessagesRequest{MaxTokens: new(1), Extra: e})
 		return r == nil, err
 	}
-	tts := func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
-		r, err := c.TTS(ctx, &llama.TTSRequest{Input: new("Once"), Extra: e})
-		if r != nil {
-			r.Body.Close()
+	tts := func(ref *llama.SpeakerRef) func(context.Context, *llama.Client, extra) (bool, error) {
+		return func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
+			r, err := c.TTS(ctx, &llama.TTSRequest{Input: new("Once"), SpeakerRef: ref, Extra: e})
+			if r != nil {
+				r.Body.Close()
+			}
+			return r == nil, err
 		}
-		return r == nil, err
 	}
-	speech := func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
-		r, err := openai.NewClient(c).Speech(ctx, &openai.SpeechRequest{Input: new("Once"), Extra: e})
-		if r != nil {
-			r.Body.Close()
+	speech := func(ref *llama.SpeakerRef) func(context.Context, *llama.Client, extra) (bool, error) {
+		return func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
+			r, err := openai.NewClient(c).Speech(ctx, &openai.SpeechRequest{Input: new("Once"), SpeakerRef: ref, Extra: e})
+			if r != nil {
+				r.Body.Close()
+			}
+			return r == nil, err
 		}
-		return r == nil, err
 	}
 	rerank := func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
 		r, err := c.Rerank(ctx, &llama.RerankRequest{Query: llama.RerankText("Once"), Documents: []llama.RerankInput{llama.RerankText("Once")}, Extra: e})
@@ -103,12 +107,27 @@ func TestEndpointExtra(t *testing.T) {
 		"error: responses stream":          {responses, stream, "Stream"},
 		"error: messages stream":           {messages, stream, "Stream"},
 		"error: messages extra parameters": {messages, extra{"extra_params": jsontext.Value(`{"stream":true}`)}, "ExtraParams"},
-		"error: native speech format":      {tts, format, "ResponseFormat"},
-		"error: native speech stream":      {tts, stream, "Stream"},
-		"error: openai speech format":      {speech, format, "ResponseFormat"},
-		"error: openai speech stream":      {speech, stream, "Stream"},
-		"error: rerank top n":              {rerank, topN, "TopN"},
-		"error: TEI rerank top n":          {rerankTEI, topN, "TopN"},
+		"error: native speech format":      {tts(nil), format, "ResponseFormat"},
+		"error: native speech stream":      {tts(nil), stream, "Stream"},
+		"error: openai speech format":      {speech(nil), format, "ResponseFormat"},
+		"error: openai speech stream":      {speech(nil), stream, "Stream"},
+		"error: native multipart speech":   {tts(&llama.SpeakerRef{}), format, "ResponseFormat"},
+		"error: openai multipart speech":   {speech(&llama.SpeakerRef{}), stream, "Stream"},
+		"error: multipart voice id in object Extra": {
+			call: func(ctx context.Context, c *llama.Client, e extra) (bool, error) {
+				r, err := openai.NewClient(c).Speech(ctx, &openai.SpeechRequest{
+					Input: new("Once"), SpeakerRef: &llama.SpeakerRef{},
+					Voice: openai.SpeechVoice{Object: &openai.SpeechVoiceID{Extra: e}},
+				})
+				if r != nil {
+					r.Body.Close()
+				}
+				return r == nil, err
+			},
+			extra: extra{"id": jsontext.Value(`"demo"`)}, field: "ID",
+		},
+		"error: rerank top n":     {rerank, topN, "TopN"},
+		"error: TEI rerank top n": {rerankTEI, topN, "TopN"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

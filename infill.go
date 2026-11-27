@@ -65,19 +65,7 @@ func (in InfillInput) MarshalJSONTo(enc *jsontext.Encoder) error {
 	if in.Text != "" {
 		return errors.New("llama: infill input cannot specify both text and parts")
 	}
-	if err := enc.WriteToken(jsontext.BeginArray); err != nil {
-		return err
-	}
-	for _, p := range in.Parts {
-		v := jsontext.String(p.text)
-		if p.isToken {
-			v = jsontext.Int(int64(p.token))
-		}
-		if err := enc.WriteToken(v); err != nil {
-			return err
-		}
-	}
-	return enc.WriteToken(jsontext.EndArray)
+	return writePromptParts(enc, in.Parts)
 }
 
 // UnmarshalJSONFrom implements json.UnmarshalerFrom.

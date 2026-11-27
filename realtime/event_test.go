@@ -49,14 +49,10 @@ func TestRealtimeWire(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			for _, b := range realtimeFrames(t, tt.name, "client") {
-				jsontest.RoundTrip[realtime.ClientEvent](t, b)
-				jsontest.InjectUnknown[realtime.ClientEvent](t, b)
-				jsontest.NoUnknown[realtime.ClientEvent](t, b, nil)
+				jsontest.CheckWire[realtime.ClientEvent](t, b)
 			}
 			for _, b := range realtimeFrames(t, tt.name, "server") {
-				jsontest.RoundTrip[realtime.ServerEvent](t, b)
-				jsontest.InjectUnknown[realtime.ServerEvent](t, b)
-				jsontest.NoUnknown[realtime.ServerEvent](t, b, nil)
+				jsontest.CheckWire[realtime.ServerEvent](t, b)
 			}
 		})
 	}
@@ -65,8 +61,8 @@ func TestRealtimeWire(t *testing.T) {
 	jsontest.CheckFallbacks[realtime.VoiceReference](t)
 }
 
-// Duplex uses the same append, cancel, text and audio frames as a conversation but has no commit or create.
-func TestRealtimeDuplexFrames(t *testing.T) {
+// The conversation recording includes the frame kinds shared with duplex sessions, which omit commit and create.
+func TestRealtimeConversationFrameKinds(t *testing.T) {
 	want := map[realtime.EventType]bool{realtime.InputAudioBufferAppend: true, realtime.ResponseCancel: true, realtime.ResponseCreated: true, realtime.ResponseOutputTextDelta: true, realtime.ResponseOutputAudioDelta: true, realtime.ResponseDone: true}
 	got := map[realtime.EventType]bool{}
 	for _, dir := range []string{"client", "server"} {
@@ -215,10 +211,16 @@ func TestRealtimeToolFrames(t *testing.T) {
 		}
 		switch ev.Type {
 		case realtime.ResponseFunctionCallArgumentsDelta:
+			if ev.Delta == nil {
+				t.Fatalf("%s is missing delta", ev.Type)
+			}
 			args.WriteString(*ev.Delta)
 		case realtime.ResponseFunctionCallArgumentsDone:
 			finished = &ev
 		case realtime.ConversationItemDone:
+			if ev.Item == nil {
+				t.Fatalf("%s is missing item", ev.Type)
+			}
 			if ev.Item.Type == "function_call_output" {
 				result = ev.Item
 			}

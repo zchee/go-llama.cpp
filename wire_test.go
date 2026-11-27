@@ -368,9 +368,7 @@ func TestSharedResponseTypes(t *testing.T) {
 		},
 		"TokenProb": {
 			check: func(t *testing.T, d []byte) {
-				jsontest.RoundTrip[[]TokenProb](t, d)
-				jsontest.InjectUnknown[[]TokenProb](t, d)
-				jsontest.NoUnknown[[]TokenProb](t, d, nil)
+				jsontest.CheckWire[[]TokenProb](t, d)
 			},
 			data: `[{"id":5,"token":" a","bytes":[32,97],"logprob":-0.1,"top_logprobs":[{"id":5,"token":" a","bytes":[32,97],"logprob":-0.1}]},` +
 				`{"id":6,"token":"b","bytes":[98],"prob":0.9,"top_probs":[{"id":6,"token":"b","bytes":[98],"prob":0.9}]}]`,

@@ -63,11 +63,14 @@ func TestObserver(t *testing.T) {
 		t.Fatalf("realtime.Dial through the observer: %v", err)
 	}
 	ex = obs.Exchanges()
-	if len(ex) != 1 || !ex[0].Upgrade() || ex[0].StatusCode != http.StatusSwitchingProtocols {
-		t.Errorf("handshake exchange = %+v, want one upgrade answered 101", ex)
-	}
 	if err := s.Close(t.Context()); err != nil {
 		t.Errorf("Session.Close: %v", err)
+	}
+	if len(ex) == 0 {
+		t.Fatal("observer recorded no WebSocket handshake exchange")
+	}
+	if len(ex) != 1 || !ex[0].Upgrade() || ex[0].StatusCode != http.StatusSwitchingProtocols {
+		t.Errorf("handshake exchange = %+v, want one upgrade answered 101", ex)
 	}
 	if !ex[0].BodyClosed() {
 		t.Errorf("closing the session did not close the upgraded connection")
@@ -333,16 +336,18 @@ func TestObserverConcurrentReads(t *testing.T) {
 			reads++
 		}
 	}()
+	defer func() {
+		close(stop)
+		if reads := <-done; reads == 0 {
+			t.Errorf("the reader never observed the exchanges")
+		}
+	}()
 	for range 3 {
 		for _, err := range llama.Stream[streamChunk](t.Context(), c, http.MethodPost, "/completion", streamRequest) {
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
-	}
-	close(stop)
-	if reads := <-done; reads == 0 {
-		t.Errorf("the reader never observed the exchanges")
 	}
 	ex := obs.Exchanges()
 	if len(ex) != 3 || ex[2].StatusCode != http.StatusOK || !ex[2].BodyClosed() {

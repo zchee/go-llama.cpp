@@ -23,21 +23,6 @@ import (
 	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
-// streamFrameCuts returns every prefix of a recorded stream that ends at an event boundary.
-func streamFrameCuts(t testing.TB, data []byte) [][]byte {
-	t.Helper()
-	var cuts [][]byte
-	for i := 0; i+1 < len(data); i++ {
-		if data[i] == '\n' && data[i+1] == '\n' {
-			cuts = append(cuts, data[:i+2])
-		}
-	}
-	if len(cuts) == 0 || len(cuts[len(cuts)-1]) != len(data) {
-		t.Fatalf("recorded stream has %d frame boundaries and %d trailing bytes", len(cuts), len(data))
-	}
-	return cuts
-}
-
 // checkStreamCuts replays a recorded stream cut after each complete frame: every cut must yield the
 // frames before it and then llama.ErrIncompleteStream, and the whole recording must end cleanly.
 // terminalYields says whether the dialect's terminal frame itself decodes into a value, as the
@@ -45,13 +30,18 @@ func streamFrameCuts(t testing.TB, data []byte) [][]byte {
 func checkStreamCuts[T any](t *testing.T, fixture, path string, terminalYields bool) {
 	t.Helper()
 	data := jsontest.ReadFile(t, fixture)
-	cuts := streamFrameCuts(t, data)
+	cuts := jsontest.StreamFrameCuts(t, data)
 	// A caller can deliberately stop at a nonterminal frame without receiving a truncation error.
+	yielded := false
 	for _, err := range llama.DecodeEndpointStream[T](bytes.NewReader(cuts[0]), 0, path, 0) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		yielded = true
 		break
+	}
+	if !yielded {
+		t.Fatal("stream ended before yielding the first frame")
 	}
 	for i, cut := range cuts {
 		var events int

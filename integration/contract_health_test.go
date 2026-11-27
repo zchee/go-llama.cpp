@@ -21,8 +21,7 @@ import (
 	llama "github.com/zchee/go-llama.cpp"
 )
 
-// The contract cases of GET /health. Copy this file to add the cases of other endpoints: name it
-// contract_<name>_test.go, register its cases with registerContracts, and call only typed methods.
+// The contract cases of GET /health.
 var _ = registerContracts(map[string]contractCase{
 	"GET /health": {
 		server: presetStories260K,

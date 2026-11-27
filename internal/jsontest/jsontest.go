@@ -45,6 +45,7 @@ package jsontest
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding"
 	"encoding/json/jsontext"
@@ -146,6 +147,16 @@ func EventData(t testing.TB, stream []byte) []Event {
 	return out
 }
 
+// CheckWire checks that T round-trips data, preserves injected unknown members, and names every recorded member.
+// It returns the value decoded by RoundTrip.
+func CheckWire[T any](t testing.TB, data []byte) *T {
+	t.Helper()
+	v := RoundTrip[T](t, data)
+	InjectUnknown[T](t, data)
+	NoUnknown[T](t, data, nil)
+	return v
+}
+
 // RoundTrip decodes data into a T, encodes the result, and fails the test unless the output is semantically equal
 // to data (same members and values; member order and number spelling may differ). It returns the decoded value.
 func RoundTrip[T any](t testing.TB, data []byte) *T {
@@ -192,7 +203,7 @@ func InjectUnknown[T any](t testing.TB, data []byte, opts ...InjectOption) {
 
 	tree := generic(t, data)
 	var paths []string
-	tree = inject(tree, "", cfg, &paths)
+	inject(tree, "", cfg, &paths)
 	if len(paths) == 0 {
 		t.Fatalf("no JSON object to inject into: %s", data)
 	}
@@ -227,24 +238,20 @@ func InjectUnknown[T any](t testing.TB, data []byte, opts ...InjectOption) {
 }
 
 // inject adds the synthetic member to every object of v and records the JSON pointer of each.
-func inject(v any, path string, cfg *injectConfig, paths *[]string) any {
+func inject(v any, path string, cfg *injectConfig, paths *[]string) {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, e := range x {
-			x[k] = inject(e, path+"/"+escapePointer(k), cfg, paths)
+			inject(e, path+"/"+escapePointer(k), cfg, paths)
 		}
 		if !skipped(path, cfg.skip) {
 			x[injectedName] = path
 			*paths = append(*paths, path)
 		}
-		return x
 	case []any:
 		for i, e := range x {
-			x[i] = inject(e, path+"/"+strconv.Itoa(i), cfg, paths)
+			inject(e, path+"/"+strconv.Itoa(i), cfg, paths)
 		}
-		return x
-	default:
-		return v
 	}
 }
 
@@ -260,18 +267,9 @@ func unescapePointer(s string) string {
 func skipped(path string, patterns []string) bool {
 	segs := strings.Split(path, "/")
 	for _, p := range patterns {
-		ps := strings.Split(p, "/")
-		if len(ps) != len(segs) {
-			continue
-		}
-		match := true
-		for i := range ps {
-			if ps[i] != "*" && ps[i] != segs[i] {
-				match = false
-				break
-			}
-		}
-		if match {
+		if slices.EqualFunc(strings.Split(p, "/"), segs, func(pattern, segment string) bool {
+			return pattern == "*" || pattern == segment
+		}) {
 			return true
 		}
 	}
@@ -306,7 +304,8 @@ func lookup(v any, path string) any {
 func generic(t testing.TB, data []byte) any {
 	t.Helper()
 	dec := jsontext.NewDecoder(bytes.NewReader(data))
-	v, err := decodeLossless(dec)
+	var v any
+	err := json.UnmarshalDecode(dec, &v, losslessNumbers)
 	if err == nil {
 		if _, extra := dec.ReadToken(); !errors.Is(extra, io.EOF) {
 			err = errors.New("data after the top-level value")
@@ -318,61 +317,14 @@ func generic(t testing.TB, data []byte) any {
 	return v
 }
 
-// decodeLossless reads one JSON value into map[string]any, []any, string, bool, nil or number.
-func decodeLossless(dec *jsontext.Decoder) (any, error) {
-	switch dec.PeekKind() {
-	case '{':
-		if _, err := dec.ReadToken(); err != nil {
-			return nil, err
-		}
-		obj := map[string]any{}
-		for dec.PeekKind() != '}' {
-			k, err := dec.ReadToken()
-			if err != nil {
-				return nil, err
-			}
-			name := k.String()
-			v, err := decodeLossless(dec)
-			if err != nil {
-				return nil, err
-			}
-			obj[name] = v
-		}
-		_, err := dec.ReadToken()
-		return obj, err
-	case '[':
-		if _, err := dec.ReadToken(); err != nil {
-			return nil, err
-		}
-		arr := []any{}
-		for dec.PeekKind() != ']' {
-			v, err := decodeLossless(dec)
-			if err != nil {
-				return nil, err
-			}
-			arr = append(arr, v)
-		}
-		_, err := dec.ReadToken()
-		return arr, err
-	case '0':
-		v, err := dec.ReadValue()
-		return number(v), err
+var losslessNumbers = json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, dst *any) error {
+	if dec.PeekKind() != '0' {
+		return errors.ErrUnsupported
 	}
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return nil, err
-	}
-	switch tok.Kind() {
-	case 'n':
-		return nil, nil
-	case 't', 'f':
-		return tok.Bool(), nil
-	case '"':
-		return tok.String(), nil
-	default:
-		return nil, fmt.Errorf("unexpected JSON token %v", tok.Kind())
-	}
-}
+	v, err := dec.ReadValue()
+	*dst = number(v)
+	return err
+}))
 
 // number is a JSON number as written. Comparisons are exact: 1, 1.0 and 1e0 are equal while 9007199254740993
 // and 9007199254740992 are not. Non-integers may also compare equal when they round to the same finite, nonzero
@@ -426,19 +378,12 @@ func NoUnknown[T any](t testing.TB, data []byte, allow map[string]string) {
 	var found []string
 	walkExtra(reflect.ValueOf(v).Elem(), "", func(path string, keys []string) {
 		if !skipped(path, patterns) {
-			found = append(found, fmt.Sprintf("%s: %s", pathOrRoot(path), strings.Join(keys, ", ")))
+			found = append(found, fmt.Sprintf("%s: %s", cmp.Or(path, "/"), strings.Join(keys, ", ")))
 		}
 	})
 	if len(found) > 0 {
 		t.Errorf("%T left server members untyped (JSON pointer: member names):\n  %s", v, strings.Join(found, "\n  "))
 	}
-}
-
-func pathOrRoot(p string) string {
-	if p == "" {
-		return "/"
-	}
-	return p
 }
 
 // walkExtra calls fn for every non-empty embed fallback reachable from v, with the JSON pointer of its object.

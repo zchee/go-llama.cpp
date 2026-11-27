@@ -62,9 +62,7 @@ func TestRecordedErrorEnvelopes(t *testing.T) {
 			}
 			checked++
 			t.Run(file, func(t *testing.T) {
-				jsontest.RoundTrip[errorEnvelope](t, body)
-				jsontest.InjectUnknown[errorEnvelope](t, body)
-				jsontest.NoUnknown[errorEnvelope](t, body, nil)
+				jsontest.CheckWire[errorEnvelope](t, body)
 			})
 		}
 		return nil

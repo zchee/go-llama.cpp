@@ -16,10 +16,13 @@ package integration
 
 import (
 	"errors"
+	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
+	llama "github.com/zchee/go-llama.cpp"
 	"github.com/zchee/go-llama.cpp/integration/harness"
 )
 
@@ -49,6 +52,23 @@ var presetStories260K = &serverPreset{
 			},
 		}
 	},
+}
+
+func modelsDirWith(t *testing.T, asset string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Symlink(harness.Model(t, asset), filepath.Join(dir, asset+".gguf")); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func requireMissingRouterModel(t *testing.T, err error, request string) {
+	t.Helper()
+	const message = "model name is missing from the request"
+	if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != message {
+		t.Fatalf("%s error = %v, want HTTP 400 invalid_request_error: %q", request, err, message)
+	}
 }
 
 var (

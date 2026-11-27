@@ -32,9 +32,7 @@ import (
 
 func completionCheckWire[T any](t *testing.T, data []byte) {
 	t.Helper()
-	jsontest.RoundTrip[T](t, data)
-	jsontest.InjectUnknown[T](t, data)
-	jsontest.NoUnknown[T](t, data, nil)
+	jsontest.CheckWire[T](t, data)
 	jsontest.CheckFallbacks[T](t)
 }
 

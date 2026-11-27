@@ -71,9 +71,8 @@ func TextPart(s string) ContentPart { return llama.TextContentPart(s) }
 // base64 data.
 func ImageURLPart(url string) ContentPart { return llama.ImageURLContentPart(url) }
 
-// InputTokensResponse is the response of POST /v1/chat/completions/input_tokens and POST
-// /v1/responses/input_tokens: the number of tokens the input would take (handle_count_tokens in
-// tools/server/server-context.cpp).
+// InputTokensResponse reports the input token count from handle_count_tokens for
+// POST /v1/chat/completions/input_tokens and POST /v1/responses/input_tokens.
 type InputTokensResponse struct {
 	// Object is "response.input_tokens".
 	Object string `json:"object"`

@@ -28,11 +28,10 @@ import (
 // parameters of a tool. The schema follows the rules of github.com/google/jsonschema-go: exported fields named by
 // their json tags, fields with omitzero or omitempty optional, and no additional properties.
 //
-// The schema generator does not understand the "embed" option of encoding/json/v2, so SchemaFor rejects any T
-// whose type graph contains a struct field tagged with it, whether the field is a fallback (a map or
-// jsontext.Value collecting unknown members) or a struct whose members are flattened into the parent. Such types
-// would get a schema that does not match their JSON form. The request and response types of this module carry
-// such fallbacks and must not be passed to SchemaFor.
+// The generator does not support the encoding/json/v2 "embed" option. SchemaFor rejects types whose type graph
+// uses it to flatten a struct or collect unknown members in a map or jsontext.Value, because their schema would
+// not match their JSON form. Do not pass request or response types from this module that use such fallback
+// fields.
 func SchemaFor[T any]() (jsontext.Value, error) {
 	t := reflect.TypeFor[T]()
 	if path, ok := findEmbed(t, map[reflect.Type]bool{}); ok {
@@ -61,9 +60,7 @@ func findEmbed(t reflect.Type, seen map[reflect.Type]bool) (string, bool) {
 	seen[t] = true
 
 	switch t.Kind() {
-	case reflect.Slice, reflect.Array:
-		return findEmbed(t.Elem(), seen)
-	case reflect.Map:
+	case reflect.Slice, reflect.Array, reflect.Map:
 		return findEmbed(t.Elem(), seen)
 	case reflect.Struct:
 		for f := range t.Fields() {

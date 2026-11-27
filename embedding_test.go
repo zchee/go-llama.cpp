@@ -55,23 +55,17 @@ func TestEmbeddingWire(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			in := jsontest.ReadFile(t, "testdata/"+test.fixture+".req.json")
-			jsontest.RoundTrip[EmbeddingRequest](t, in)
-			jsontest.InjectUnknown[EmbeddingRequest](t, in)
-			jsontest.NoUnknown[EmbeddingRequest](t, in, nil)
+			jsontest.CheckWire[EmbeddingRequest](t, in)
 			out := jsontest.ReadFile(t, "testdata/"+test.fixture+".resp.json")
 			if test.code != 0 {
-				jsontest.RoundTrip[errorEnvelope](t, out)
-				jsontest.InjectUnknown[errorEnvelope](t, out)
-				jsontest.NoUnknown[errorEnvelope](t, out, nil)
+				jsontest.CheckWire[errorEnvelope](t, out)
 				got := ReadAPIError(&http.Response{StatusCode: test.code, Body: io.NopCloser(bytes.NewReader(out))})
 				if got.Code != test.code || got.Type != test.typ || got.Message == "" {
 					t.Errorf("ReadAPIError = %v, want code %d and type %s with a message", got, test.code, test.typ)
 				}
 				return
 			}
-			got := *jsontest.RoundTrip[EmbeddingResponse](t, out)
-			jsontest.InjectUnknown[EmbeddingResponse](t, out)
-			jsontest.NoUnknown[EmbeddingResponse](t, out, nil)
+			got := *jsontest.CheckWire[EmbeddingResponse](t, out)
 			var lengths []int
 			for i, item := range got {
 				if item.Index != i {

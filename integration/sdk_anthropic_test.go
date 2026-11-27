@@ -17,6 +17,7 @@ package integration
 import (
 	"encoding/json/jsontext"
 	"net/http"
+	"slices"
 	"testing"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
@@ -85,16 +86,10 @@ func TestSDKAnthropic(t *testing.T) {
 					t.Fatalf("SDK: %v\nwire: %s", err, x.response)
 				}
 				x.checkResponse[anthropic.MessageResponse](t, resp)
-				if tt.tool {
-					found := false
-					for _, block := range resp.Content {
-						if block.Type == "tool_use" {
-							found = true
-						}
-					}
-					if !found {
-						t.Fatalf("no tool_use block: %s", x.response)
-					}
+				if tt.tool && !slices.ContainsFunc(resp.Content, func(block sdk.ContentBlockUnion) bool {
+					return block.Type == "tool_use"
+				}) {
+					t.Fatalf("no tool_use block: %s", x.response)
 				}
 			}
 			x.checkRequest(t, local)

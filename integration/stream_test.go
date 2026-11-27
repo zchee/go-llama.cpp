@@ -220,6 +220,9 @@ func TestStreamOwnership(t *testing.T) {
 				break
 			}
 		}
+		if n != 2 {
+			t.Errorf("stream yielded %d events, want 2 before breaking", n)
+		}
 		ex := obs.Exchanges()
 		if len(ex) != 1 || !ex[0].BodyClosed() {
 			t.Fatalf("after break: %d requests, body closed %t; want 1 and true", len(ex), len(ex) == 1 && ex[0].BodyClosed())
@@ -241,6 +244,9 @@ func TestStreamOwnership(t *testing.T) {
 			if n == 1 {
 				cancel()
 			}
+		}
+		if n == 0 {
+			t.Error("stream yielded no event to trigger cancellation")
 		}
 		// Events already buffered when the context ends may still be delivered, so the stream either ends with
 		// the cancellation or completes; it never yields another kind of error.

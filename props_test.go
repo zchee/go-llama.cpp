@@ -51,9 +51,7 @@ func TestPropsResponseFixtures(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			data := jsontest.ReadFile(t, tt.path)
-			got := jsontest.RoundTrip[PropsResponse](t, data)
-			jsontest.InjectUnknown[PropsResponse](t, data)
-			jsontest.NoUnknown[PropsResponse](t, data, nil)
+			got := jsontest.CheckWire[PropsResponse](t, data)
 			jsontest.CheckFallbacks[PropsResponse](t)
 
 			out, err := json.Marshal(got.UISettings, jsonOptions)

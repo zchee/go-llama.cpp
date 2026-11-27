@@ -68,11 +68,16 @@ func TestStreamEndNativeFixtureCuts(t *testing.T) {
 				end += bytes.Index(data[end:], []byte("\n\n")) + 2
 				frames++
 				if frames == 1 {
+					yielded := false
 					for _, err := range DecodeEndpointStream[CompletionResponse](bytes.NewReader(data[:end]), 0, "/"+endpoint, tt.expected, tt.fields...) {
 						if err != nil {
 							t.Fatal(err)
 						}
+						yielded = true
 						break
+					}
+					if !yielded {
+						t.Fatal("stream ended before yielding the first frame")
 					}
 				}
 			}

@@ -153,11 +153,7 @@ func TestEmbeddingInputAccessors(t *testing.T) {
 		if diff := gocmp.Diff(wantContent, got.Content(), cmpOpts); diff != "" {
 			t.Errorf("%s: Content() mismatch (-want +got):\n%s", label, diff)
 		}
-		batch := got.Batch()
-		if (batch != nil) != (wantBatch != nil) {
-			t.Errorf("%s: Batch() nilness = %t, want %t", label, batch == nil, wantBatch == nil)
-		}
-		if diff := gocmp.Diff(wantBatch, batch, cmpOpts); diff != "" {
+		if diff := gocmp.Diff(wantBatch, got.Batch(), cmpOpts); diff != "" {
 			t.Errorf("%s: Batch() mismatch (-want +got):\n%s", label, diff)
 		}
 	}

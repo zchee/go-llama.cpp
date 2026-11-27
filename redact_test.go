@@ -41,7 +41,6 @@ func (e *dumpError) Error() string { return "request failed: " + e.dump }
 
 func (e *dumpError) Unwrap() error { return errTransportDown }
 
-// dumpingTransport fails every request with a dumpError, and also quotes the credential headers with %q.
 func dumpingTransport() http.RoundTripper {
 	return roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		dump, err := httputil.DumpRequest(r, false)

@@ -35,9 +35,7 @@ import (
 
 func checkAnthropicWire[T any](t *testing.T, data []byte) *T {
 	t.Helper()
-	got := jsontest.RoundTrip[T](t, data)
-	jsontest.InjectUnknown[T](t, data)
-	jsontest.NoUnknown[T](t, data, nil)
+	got := jsontest.CheckWire[T](t, data)
 	jsontest.CheckFallbacks[T](t)
 	return got
 }
@@ -122,13 +120,19 @@ func checkAnthropicStream(t *testing.T, data []byte, wantBlocks, wantDeltas []st
 		eventTypes = append(eventTypes, ev.Type)
 		switch ev.Type {
 		case "content_block_start":
+			if ev.ContentBlock == nil {
+				t.Fatalf("event %d: content_block_start is missing content_block", i)
+			}
 			blocks = append(blocks, ev.ContentBlock.Type)
 		case "content_block_delta":
+			if ev.Delta == nil || ev.Delta.Type == nil {
+				t.Fatalf("event %d: content_block_delta is missing delta.type", i)
+			}
 			if !slices.Contains(deltas, *ev.Delta.Type) {
 				deltas = append(deltas, *ev.Delta.Type)
 			}
 		case "message_delta":
-			if ev.Delta.StopDetails == nil || ev.Delta.StopReason == "" || ev.Usage.OutputTokens <= 0 {
+			if ev.Delta == nil || ev.Delta.StopDetails == nil || ev.Delta.StopReason == "" || ev.Usage == nil || ev.Usage.OutputTokens <= 0 {
 				t.Fatalf("missing stop details or output tokens: %+v", ev)
 			}
 		}

@@ -23,8 +23,7 @@ import (
 	"github.com/zchee/go-llama.cpp/openai"
 )
 
-// drainStream consumes a stream to its natural end.
-func drainStream[T any](t *testing.T, seq iter.Seq2[*T, error]) int {
+func drainStream[T any](t *testing.T, seq iter.Seq2[*T, error]) {
 	t.Helper()
 	events := 0
 	for _, err := range seq {
@@ -36,7 +35,6 @@ func drainStream[T any](t *testing.T, seq iter.Seq2[*T, error]) int {
 	if events == 0 {
 		t.Fatal("stream yielded no events")
 	}
-	return events
 }
 
 // TestStreamEndToEnd runs every streaming dialect against the real server to its natural end: the

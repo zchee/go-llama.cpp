@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 )
 
 // TokenizeRequest is the body sent to POST /tokenize.
@@ -53,10 +52,7 @@ func TokenizeText(text string) TokenizeContent { return TokenizeContent{text: &t
 
 // TokenizeParts returns content encoded as an array. Use TextPart and TokenPart to build its elements.
 func TokenizeParts(parts ...PromptPart) TokenizeContent {
-	if parts == nil {
-		parts = []PromptPart{}
-	}
-	return TokenizeContent{parts: slices.Clone(parts)}
+	return TokenizeContent{parts: append([]PromptPart{}, parts...)}
 }
 
 // Text returns the text and whether the content is a single string.
@@ -81,21 +77,7 @@ func (c TokenizeContent) MarshalJSONTo(enc *jsontext.Encoder) error {
 	if c.parts == nil {
 		return errors.New("llama: tokenize content is unset")
 	}
-	if err := enc.WriteToken(jsontext.BeginArray); err != nil {
-		return err
-	}
-	for _, part := range c.parts {
-		text, isText := part.Text()
-		tok := jsontext.String(text)
-		if !isText {
-			id, _ := part.Token()
-			tok = jsontext.Int(int64(id))
-		}
-		if err := enc.WriteToken(tok); err != nil {
-			return err
-		}
-	}
-	return enc.WriteToken(jsontext.EndArray)
+	return writePromptParts(enc, c.parts)
 }
 
 // UnmarshalJSONFrom implements json.UnmarshalerFrom.
@@ -218,10 +200,7 @@ func TokenPieceText(text string) TokenPiece { return TokenPiece{text: text} }
 
 // TokenPieceBytes returns a piece encoded as an array of byte values, not a base64 string.
 func TokenPieceBytes(data []byte) TokenPiece {
-	if data == nil {
-		data = []byte{}
-	}
-	return TokenPiece{raw: slices.Clone(data)}
+	return TokenPiece{raw: append([]byte{}, data...)}
 }
 
 // Text returns the text and whether the piece was encoded as a string.

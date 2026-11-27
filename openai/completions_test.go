@@ -120,9 +120,7 @@ func TestCompletionsResponseWire(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			data := jsontest.ReadFile(t, tt.path)
-			got := jsontest.RoundTrip[CompletionResponse](t, data)
-			jsontest.InjectUnknown[CompletionResponse](t, data)
-			jsontest.NoUnknown[CompletionResponse](t, data, nil)
+			got := jsontest.CheckWire[CompletionResponse](t, data)
 			tt.verify(t, got)
 		})
 	}
@@ -152,6 +150,9 @@ func TestCompletionsStreamWire(t *testing.T) {
 					t.Errorf("accumulated stream text is empty")
 				}
 				last := chunks[len(chunks)-1]
+				if len(last.Choices) == 0 {
+					t.Fatalf("final chunk has no choices: %+v", last)
+				}
 				if last.Choices[0].FinishReason == nil || *last.Choices[0].FinishReason != "length" {
 					t.Errorf("last FinishReason = %v, want %q", last.Choices[0].FinishReason, "length")
 				}
@@ -230,9 +231,7 @@ func TestCompletionsStreamWire(t *testing.T) {
 			raw := jsontest.ReadFile(t, tt.path)
 			for i, ev := range jsontest.EventData(t, raw) {
 				t.Run(fmt.Sprintf("event_%d", i), func(t *testing.T) {
-					jsontest.RoundTrip[CompletionResponse](t, ev.Data)
-					jsontest.InjectUnknown[CompletionResponse](t, ev.Data)
-					jsontest.NoUnknown[CompletionResponse](t, ev.Data, nil)
+					jsontest.CheckWire[CompletionResponse](t, ev.Data)
 				})
 			}
 
@@ -266,9 +265,7 @@ func TestCompletionsRequestWire(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			data := jsontest.ReadFile(t, tt.path)
-			jsontest.RoundTrip[CompletionRequest](t, data)
-			jsontest.InjectUnknown[CompletionRequest](t, data)
-			jsontest.NoUnknown[CompletionRequest](t, data, nil)
+			jsontest.CheckWire[CompletionRequest](t, data)
 		})
 	}
 
@@ -377,9 +374,7 @@ func TestCompletionsMultimodalRefusalWire(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			reqData := jsontest.ReadFile(t, tt.prefix+".req.json")
-			req := jsontest.RoundTrip[CompletionRequest](t, reqData)
-			jsontest.InjectUnknown[CompletionRequest](t, reqData)
-			jsontest.NoUnknown[CompletionRequest](t, reqData, nil)
+			req := jsontest.CheckWire[CompletionRequest](t, reqData)
 			if !req.Prompt.Equal(tt.wantPrompt) {
 				t.Errorf("recorded prompt %v does not match the typed prompt", req.Prompt)
 			}
@@ -419,14 +414,15 @@ func TestCompletionsStreamErrorWire(t *testing.T) {
 		t.Fatalf("got %d data frames for %d chunks and a terminal error", len(events), len(chunks))
 	}
 	for _, ev := range events[:len(chunks)] {
-		jsontest.RoundTrip[CompletionResponse](t, ev.Data)
-		jsontest.InjectUnknown[CompletionResponse](t, ev.Data)
-		jsontest.NoUnknown[CompletionResponse](t, ev.Data, nil)
+		jsontest.CheckWire[CompletionResponse](t, ev.Data)
 	}
 	if len(chunks) == 0 {
 		t.Fatal("no chunks decoded before the error frame")
 	}
 	last := chunks[len(chunks)-1]
+	if len(last.Choices) == 0 {
+		t.Fatalf("last chunk before the error has no choices: %+v", last)
+	}
 	if last.Usage == nil || last.Choices[0].FinishReason == nil || *last.Choices[0].FinishReason != "length" {
 		t.Errorf("last chunk before the error = %+v, want a finished result with usage", last)
 	}

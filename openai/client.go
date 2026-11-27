@@ -15,14 +15,14 @@
 // Package openai is a client for the OpenAI-compatible endpoints of llama-server: models, completions, chat
 // completions and their real-time control, responses, embeddings, speech, and token counting.
 //
-// The request types embed llama.SamplingParams, so the llama.cpp sampling extensions are set in the same literal
-// as the OpenAI fields:
+// Text completion, chat completion and responses requests embed llama.SamplingParams.
+// Set llama.cpp sampling options alongside the OpenAI fields:
 //
 //	oc := openai.NewClient(c)
 //	res, err := oc.ChatCompletions(ctx, &openai.ChatCompletionRequest{
-//		Model:          "m",
-//		Messages:       []openai.Message{{Role: "user", Content: openai.TextContent("Hello")}},
-//		SamplingParams: llama.SamplingParams{Mirostat: new(2)},
+//		Model:    "m",
+//		Messages: []openai.Message{{Role: "user", Content: openai.TextContent("Hello")}},
+//		Mirostat: new(2),
 //	})
 //
 // Authentication, retries and errors are those of the llama.Client the client is built from.

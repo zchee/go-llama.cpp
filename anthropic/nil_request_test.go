@@ -15,11 +15,13 @@
 package anthropic
 
 import (
+	"context"
 	"iter"
 	"net/http/httptrace"
 	"testing"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
 func TestNilRequiredRequest(t *testing.T) {
@@ -28,34 +30,29 @@ func TestNilRequiredRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := NewClient(base)
-	ctx := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(hostPort string) {
-		t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
-	}})
+	ctx := func(t *testing.T) context.Context {
+		return httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GetConn: func(hostPort string) {
+			t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
+		}})
+	}
 	requestError := func(_ any, err error) error { return err }
 	tests := map[string]struct {
-		got  error
+		call func(*testing.T) error
 		want string
 	}{
-		"error: Messages":       {requestError(c.Messages(ctx, nil)), "anthropic: nil messages request"},
-		"error: MessagesStream": {streamError(t, c.MessagesStream(ctx, nil)), "anthropic: nil messages stream request"},
-		"error: CountTokens":    {requestError(c.CountTokens(ctx, nil)), "anthropic: nil count tokens request"},
+		"error: Messages": {func(t *testing.T) error { return requestError(c.Messages(ctx(t), nil)) }, "anthropic: nil messages request"},
+		"error: MessagesStream": {func(t *testing.T) error {
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*MessageEvent, error] {
+				return c.MessagesStream(ctx(t), nil)
+			}, llama.ErrStreamConsumed)
+		}, "anthropic: nil messages stream request"},
+		"error: CountTokens": {func(t *testing.T) error { return requestError(c.CountTokens(ctx(t), nil)) }, "anthropic: nil count tokens request"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if tt.got == nil || tt.got.Error() != tt.want {
-				t.Errorf("error = %v, want %q", tt.got, tt.want)
+			if got := tt.call(t); got == nil || got.Error() != tt.want {
+				t.Errorf("error = %v, want %q", got, tt.want)
 			}
 		})
 	}
-}
-
-func streamError[T any](t *testing.T, seq iter.Seq2[*T, error]) error {
-	t.Helper()
-	for v, err := range seq {
-		if v != nil {
-			t.Errorf("unexpected stream value for nil request: %v", v)
-		}
-		return err
-	}
-	return nil
 }

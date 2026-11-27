@@ -27,17 +27,16 @@ import (
 
 // CompletionRequest is the request body of POST /v1/completions.
 //
-// It embeds llama.SamplingParams so llama.cpp sampling and generation parameters (such as Mirostat, Seed, Stop and
-// LogitBias) can be set directly in the request literal.
+// Set llama.SamplingParams fields such as Mirostat, Seed, Stop and LogitBias directly in the request literal.
+// Prompt can represent every llama.Prompt form, but the server's handle_completions_impl and
+// tokenize_input_subprompt accept different forms depending on whether a multimodal projector is loaded:
 //
-// Prompt accepts every form of llama.Prompt, but which forms the server takes on this route depends on how it was
-// started (handle_completions_impl in tools/server/server-context.cpp and tokenize_input_subprompt in
-// tools/server/server-common.cpp). Without a multimodal projector, a string, token ids, a mixed sequence and a
-// batch of those are accepted, and an object prompt is accepted only without multimodal_data: media is refused
-// with 400 "model does not support multimodal requests". With a projector loaded (--mmproj), the handler reads
-// the prompt as a plain string, so token ids, mixed sequences, object prompts and batches are all refused with
-// 400 "type must be string". Either way this route passes no media files to the model, so multimodal input never
-// works here; callers that need images use ChatCompletions, whose message content parts carry them.
+//   - Without a projector, the server accepts strings, token IDs, mixed sequences, batches of these, and object
+//     prompts without multimodal_data. It rejects media with HTTP 400 "model does not support multimodal requests".
+//   - With a projector (--mmproj), the server accepts only strings. It rejects all other forms with HTTP 400
+//     "type must be string".
+//
+// Neither configuration passes media to the model. For images, use message content parts with [Client.ChatCompletions].
 type CompletionRequest struct {
 	// Model selects the target model in router mode; single-model servers ignore it.
 	Model string `json:"model,omitzero"`
@@ -61,9 +60,8 @@ type CompletionRequest struct {
 	// Stream reports whether the server should emit server-sent events. Completions and CompletionsStream set it
 	// automatically.
 	Stream *bool `json:"stream,omitzero"`
-	// StreamOptions configures streaming behavior. On this route stream_options.include_usage does not suppress
-	// the usage of the last chunk: the server writes usage and finish_reason into the final chunk of each result
-	// unconditionally (to_json_oaicompat in tools/server/server-task.cpp).
+	// StreamOptions configures streaming. On this route, to_json_oaicompat always writes usage and finish_reason
+	// in each result's final chunk, regardless of stream_options.include_usage.
 	StreamOptions *StreamOptions `json:"stream_options,omitzero"`
 
 	llama.SamplingParams

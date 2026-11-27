@@ -18,8 +18,6 @@ import (
 	"errors"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	llama "github.com/zchee/go-llama.cpp"
@@ -116,20 +114,14 @@ func TestSystemoneEvaluation(t *testing.T) {
 }
 
 func TestSystemoneRouter(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Symlink(harness.Model(t, "tinyopenjev"), filepath.Join(dir, "tinyopenjev.gguf")); err != nil {
-		t.Fatal(err)
-	}
+	dir := modelsDirWith(t, "tinyopenjev")
 	srv := harness.StartT(t, harness.Options{ModelsDir: dir, Args: []string{"--ctx-size", "4096", "--batch-size", "512", "--parallel", "1", "--seed", "42"}})
 	c, _ := srv.Client(t)
 	client := systemone.NewClient(c)
 	q := map[string]systemone.Question{"delivered": systemone.Noul(systemone.Text("Has it arrived?"), nil)}
 
-	if _, err := client.Evaluate(t.Context(), &systemone.Request{State: systemone.Text("A parcel has arrived."), Questions: q}); err == nil {
-		t.Fatal("unrouted POST /v1/systemone succeeded, want HTTP 400")
-	} else if apiErr, ok := errors.AsType[*llama.APIError](err); !ok || apiErr.StatusCode != http.StatusBadRequest || apiErr.Type != llama.ErrorTypeInvalidRequest || apiErr.Message != "model name is missing from the request" {
-		t.Fatalf("unrouted POST /v1/systemone error = %v, want HTTP 400 model name is missing", err)
-	}
+	_, err := client.Evaluate(t.Context(), &systemone.Request{State: systemone.Text("A parcel has arrived."), Questions: q})
+	requireMissingRouterModel(t, err, "unrouted POST /v1/systemone")
 
 	res, err := client.Evaluate(t.Context(), &systemone.Request{Model: "tinyopenjev", State: systemone.Text("A parcel has arrived."), Questions: q})
 	if err != nil {

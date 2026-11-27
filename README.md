@@ -308,11 +308,11 @@ Methods that require a request reject `nil` before sending, for example `llama: 
 
 Non-2xx HTTP responses return an `*llama.APIError`. Use `errors.AsType[*llama.APIError](err)` to inspect its `StatusCode` and `Type`; for example, `llama.ErrorTypeExceedContextSize` tells you to shorten the prompt. An SSE error event also yields an `*llama.APIError` and ends the iterator. In both cases `APIError.Raw` contains at most 1 MiB of the original payload. The client redacts the configured API key when formatting returned errors, including with `%#v`. Realtime `error` events are delivered as `ServerEvent` values, so a caller can handle the event and keep the session open.
 
-An SSE stream that ends before its required final frame yields an error that matches `errors.Is(err, llama.ErrIncompleteStream)`. Native completion and infill expect final result frames; OpenAI text and chat completions expect `[DONE]`; Responses expects `response.completed`; Anthropic Messages expects `message_stop`. This check confirms that the end arrived, not that no middle event was lost. `ModelEvents` has no end marker, so EOF at a frame boundary is normal. To apply the endpoint checks when replaying a recording, use `llama.DecodeEndpointStream`; `llama.DecodeStream` checks SSE framing only.
+An SSE stream that ends before its required final frame yields an error that matches `errors.Is(err, llama.ErrIncompleteStream)`. Native completion and infill expect final result frames; OpenAI text and chat completions expect `[DONE]`; Responses expects `response.completed`; Anthropic Messages expects `message_stop`. This check confirms that the end arrived, not that no middle event was lost. `ModelEvents` has no end marker, so EOF at a frame boundary is normal. Stopping the iteration early yourself is not an incomplete-stream error. To apply the endpoint checks when replaying a recording, use `llama.DecodeEndpointStream`; `llama.DecodeStream` checks SSE framing only.
 
 ## Resource ownership
 
-- **HTTP server-sent event streams are lazy and single-use.** The `iter.Seq2` sends the request when iteration starts. The client closes the response body on completion, error (including a missing final frame), `break`, or context cancellation. Stopping early yourself is not an incomplete-stream error. A second iteration yields `llama.ErrStreamConsumed` without sending another request.
+- **HTTP server-sent event streams are lazy and single-use.** The `iter.Seq2` sends the request when iteration starts. The client closes the response body on completion, error (including a missing final frame), `break`, or context cancellation. A second iteration yields `llama.ErrStreamConsumed` without sending another request.
 - **The caller owns audio bodies.** Close `Audio.Body` after `TTS` or `Speech`. `Audio.Format` describes the advertised encoding. `Audio.WriteTo` copies the audio and closes the body, stopping without draining it if a write fails. A normal EOF on an audio stream does not prove speech generation succeeded: the server can end it the same way after a generation error.
 - **The caller owns realtime sessions.** Use `Close(ctx)` to wait for the closing handshake or `CloseNow()` to close without waiting for it, even if a closing handshake is already in progress. Breaking out of `Events()` leaves the connection open. Only one `Events()` iterator may read at a time, and writes can run concurrently with it.
 
@@ -347,62 +347,109 @@ The recorded chat stream decoder misses its allocation budget relative to bare J
 
 The llama.cpp v1.1.0 server README describes some behaviour differently from what the server's source does. The library follows the source and the recorded behaviour of the real server. Evidence cites the llama.cpp source files at tag v1.1.0 or recordings from a real 1.1.0 server.
 
+### Request parameters and response fields
+
 | README says | Server does | Evidence |
 |---|---|---|
-| `/slots/{id_slot}?action=save\|restore\|erase` are three endpoints | One route `POST /slots/:id_slot`, action in the query | server.cpp:220 |
-| The `/props` example has no `voices` member | The handler writes `voices`; the text below the example documents it | README 953-1048; server-context.cpp:5691 |
-| `/v1/audio/transcriptions` is mentioned only in passing | The route exists | server.cpp:190-191 |
 | `samplers` is an array of names | Also accepts a compact string such as `"kpt"` | server-schema.cpp:472-479 |
 | Speculative request parameters appear in examples | Their setters are compiled out with `#if 0` | server-schema.cpp:199-229 |
-| `--lora-init-without-apply` starts all adapters at scale 0 | The real server reports scale 1; `POST []` sets 0. The flag skips applying the adapter at start but does not change the stored scale the list reports | recorded from the real server; common.cpp:1508 |
-| `/v1/completions` follows the OpenAI Completions API | The handler skips the OpenAI parameter parser: without a projector it accepts native text and token prompt forms, `logprobs` is a count, and `echo`, `best_of` and `suffix` are ignored | server-context.cpp:5993-6003, server-common.cpp:1252-1289 |
-| Usage in the last stream chunk depends on `stream_options` | `/v1/completions` always emits `usage` on the final chunk | server-task.cpp:366-404 |
 | `response_fields` `"a/b"` moves `b` to the top under a new name | The top-level member keeps the literal name `"a/b"` | server-task.cpp:354; recorded from the real server |
+| `json_schema` and `grammar` are separate options | With both present the server uses `grammar` | server-schema.cpp:276-299; recorded from the real server |
+| A prompt object is `{prompt_string: "string", multimodal_data: [...]}` | Without media, `prompt_string` may also be a token array or a mixed array | server-common.cpp:1222-1225, 1084-1115; recorded from the real server |
+| `reasoning_effort`: any value other than `none` is passed to the template | Values the template does not allow are rejected with 400 | server-common.cpp:1654-1659 |
+| `tokens_cached` is the number of prompt tokens reused from the cache | It is the size of the slot cache when generation ends, generated tokens included | server-context.cpp:2415-2416 |
+
+### Completion, infill, tokenize and apply-template
+
+| README says | Server does | Evidence |
+|---|---|---|
 | `generation_settings` of `/completion` includes `n_ctx` and `model` | Neither is in it | README 681; recorded from the real server |
-| `default_generation_settings` of `/props` equals the full generation settings and shows slot state | It holds only `{params: <reduced subset>, n_ctx}`; in router mode `params` is null | README 961-1046; recorded from the real server |
-| Examples show `speculative.n_max`, `speculative.n_min`, `speculative.p_min` | Settings serialise only `speculative.types` | README 1014, 1162, 1227; recorded from the real server |
-| Slot examples show `next_token` as an object | The server emits a one-element array, and a fresh slot omits task-specific members | README 1169, 1234; recorded from the real server |
-| Tool definitions and `tool_choice` as in the OpenAI API | `tool_choice` also accepts an `allowed_tools` form; tools accept `defer_loading`; `strict` is ignored | common/chat.cpp:339-386, 705-739 |
+| `/infill` `prompt` is added after the FIM_MID token | It is appended to the input prefix, before the suffix | server-common.cpp:2086-2103; recorded from the real server |
+| Tokenize `content` is required text; the `"á"` example lists two tokens | `content` may be absent or a mixed list; the real output has a leading whitespace token before the two byte pieces | server-context.cpp:6419-6457; recorded from the real server |
+| `/apply-template` takes `messages` | The handler runs the full chat parser (tools, tool choice, response format, continuation) and never streams | server-context.cpp:6391-6404; server-common.cpp:1498-1698 |
+| Native stream partials carry only `content`, `tokens`, and `stop` | Partials also carry `index`, token counters, `id_slot`, and optional progress, timings and probabilities | README 626; server-task.cpp:1052-1073 |
+| POST `/completion` documents `repeat_penalty` default 1.1 and a sampler chain without `penalties` and `top_n_sigma` | The default is 1.0 and the chain includes both, matching the CLI table and recorded `/props` responses | README 124-137; recorded from the real server |
+
+### Embeddings and reranking
+
+| README says | Server does | Evidence |
+|---|---|---|
 | The rerank score is a match probability in [0, 1] | The server copies the model's output without enforcing a range and uses -1e6 when embeddings are missing | README 849; server-context.cpp:2595-2607 |
 | `texts` selects TEI, `documents` selects Jina (only the unmixed cases are described) | With both keys present, `texts` selects the TEI output shape while `documents` wins as the input | README 802-803; server-context.cpp:6892, 6957-6962 |
-| `GET /lora-adapters` returns `id`, `path`, `scale` | The server also writes `task_name` and `prompt_prefix`, and `alora_invocation_string` / `alora_invocation_tokens` when present | server-task.cpp:1711-1728 |
-| `POST /lora-adapters` response is not described | It answers `{"success": true}`; a non-array body is a 400 | server-task.cpp:1735-1736; server-context.cpp:6626-6657 |
-| The metrics table lists 15 metrics | The server also emits `prompt_tokens_cached_total`, and a `Process-Start-Time-Unix` response header | server-task.cpp:1581-1583; server-context.cpp:5742-5802 |
-| `status` of a model in `GET /models`: `unloaded` has no `args`; `downloading` carries nested `progress` | `status` always has `args` (and often `preset`), also when unloaded; the list does not emit download progress | server-models.cpp:2214-2341; recorded from the real server |
-| `/models/sse` download progress is `data[URL]`; status updates are `model_status` events | Progress is `data.progress[URL]`; updates use `status_change` except the first router `model_status` event | server-models.cpp:1458-1522, 1965-2012; recorded from the real server |
-| `GET /v1/models` returns `object` and `data` | A single-model server also returns a separate Ollama-style `models` array next to `data` | server-context.cpp:5586-5644; recorded from the real server |
-| `DELETE /models` answers `{"success": true}` | Deleting a sidecar that is not there can answer 200 with `success: false` | recorded from the real server |
 | `/embedding` takes `content`; `/embeddings` supports every pooling | They are the same handler: `/embedding` also accepts `input` (which wins over `content`) and every pooling | server.cpp:198-200; server-context.cpp:6761-6875 |
 | Native embeddings take the same options as `/v1/embeddings` | The native endpoints validate `encoding_format: base64` and then ignore it | server-context.cpp:6761-6875; recorded from the real server |
 | Pooled embeddings are normalised with the Euclidean norm | Both pooled endpoints honour `embd_normalize` | server-context.cpp:6761-6875 |
 | `/v1/embeddings` returns the OpenAI envelope | Given the legacy `content` member it answers with the native envelope; `model` in the request overrides the echoed name; `dimensions` is not read | server-common.cpp:1722-1763; recorded from the real server |
+| Embeddings support `encoding_format: base64` | The encoded bytes use the server's native float byte order, not a fixed byte order | server-common.cpp:1733-1738 |
+
+### Props, slots and metrics
+
+| README says | Server does | Evidence |
+|---|---|---|
+| `/slots/{id_slot}?action=save\|restore\|erase` are three endpoints | One route `POST /slots/:id_slot`, action in the query | server.cpp:220 |
+| The `/props` example has no `voices` member | The handler writes `voices`; the text below the example documents it | README 953-1048; server-context.cpp:5691 |
+| `default_generation_settings` of `/props` equals the full generation settings and shows slot state | It holds only `{params: <reduced subset>, n_ctx}`; in router mode `params` is null | README 961-1046; recorded from the real server |
+| Examples show `speculative.n_max`, `speculative.n_min`, `speculative.p_min` | Settings serialise only `speculative.types` | README 1014, 1162, 1227; recorded from the real server |
+| Slot examples show `next_token` as an object | The server emits a one-element array, and a fresh slot omits task-specific members | README 1169, 1234; recorded from the real server |
+| The metrics table lists 15 metrics | The server also emits `prompt_tokens_cached_total`, and a `Process-Start-Time-Unix` response header | server-task.cpp:1581-1583; server-context.cpp:5742-5802 |
+
+### LoRA adapters
+
+| README says | Server does | Evidence |
+|---|---|---|
+| `--lora-init-without-apply` starts all adapters at scale 0 | The real server reports scale 1; `POST []` sets 0. The flag skips applying the adapter at start but does not change the stored scale the list reports | recorded from the real server; common.cpp:1508 |
+| `GET /lora-adapters` returns `id`, `path`, `scale` | The server also writes `task_name` and `prompt_prefix`, and `alora_invocation_string` / `alora_invocation_tokens` when present | server-task.cpp:1711-1728 |
+| `POST /lora-adapters` response is not described | It answers `{"success": true}`; a non-array body is a 400 | server-task.cpp:1735-1736; server-context.cpp:6626-6657 |
+| LoRA adapter updates can be routed like other POST endpoints | In router mode `POST /lora-adapters?model=...` returns 400: the router reads `model` from an object body, but the endpoint needs an array | server-models.cpp:2165-2172; server-context.cpp:6626-6631; recorded from the real server |
+
+### OpenAI completions, chat, Responses and Anthropic Messages
+
+| README says | Server does | Evidence |
+|---|---|---|
+| `/v1/completions` follows the OpenAI Completions API | The handler skips the OpenAI parameter parser: without a projector it accepts native text and token prompt forms, `logprobs` is a count, and `echo`, `best_of` and `suffix` are ignored | server-context.cpp:5993-6003, server-common.cpp:1252-1289 |
+| Usage in the last stream chunk depends on `stream_options` | `/v1/completions` always emits `usage` on the final chunk | server-task.cpp:366-404 |
+| Tool definitions and `tool_choice` as in the OpenAI API | `tool_choice` also accepts an `allowed_tools` form; tools accept `defer_loading`; `strict` is ignored | common/chat.cpp:339-386, 705-739 |
+| `/control` on a finished completion is a no-op | It answers 200 with `success: false` and a message | recorded from the real server |
+| Anthropic `model` is required; named `tool_choice` selects a tool; `temperature` and `top_p` default to 1.0 | `model` is not read on a single-model server; `tool` and `any` both mean any required tool; omitted settings use the server defaults; `stop_sequences` may be a string | server-chat.cpp:598-687; server-common.cpp:1512-1517; recorded from the real server |
+| Responses follow the OpenAI Responses API | Stored and previous responses, non-function tools and file input are rejected or skipped; the non-stream output has `completed_at`, the final stream snapshot does not | server-chat.cpp:6-352; recorded from the real server |
+| `/v1/completions` accepts OpenAI completion prompts and supports native completion features | With a multimodal projector loaded, the route accepts only a string prompt. It does not accept multimodal object prompts with or without a projector | README 1430-1438; server-context.cpp:5332-5337, 5993-6003; server-common.cpp:1210-1228 |
+
+### Speech and transcription
+
+| README says | Server does | Evidence |
+|---|---|---|
+| `/v1/audio/transcriptions` is mentioned only in passing | The route exists | server.cpp:190-191 |
+| `/tts` `response_format` is one of wav, pcm, pcm16 | An unknown value yields WAV instead of an error; `max_tokens` is an undocumented alias of `n_predict` | server-schema.cpp:537-580 |
+| `/v1/audio/speech` PCM is mono; omitted `stream_format` means buffered | The model's channel count is kept; a native `stream: true` survives the conversion | server-chat.cpp:785-815; server-context.cpp:7145-7219 |
+| `/tts` multipart upload takes the same options as JSON | The multipart parser converts `stream` and numbers but not `raw_prompt`, which silently becomes false | server-http.cpp:825-839; server-context.cpp:5706-5722 |
+
+### Realtime
+
+| README says | Server does | Evidence |
+|---|---|---|
 | Realtime `max_output_tokens` is an integer or `"inf"` | Only positive integers (capped at INT32_MAX) or `"inf"` are accepted | server-realtime.cpp:37-123 |
 | Realtime client events are the ones listed per section | Both handlers also accept `transcription_session.update`; the conversation handler accepts `input_audio_buffer.clear` and answers `input_audio_buffer.cleared`; `session.update` also takes `audio.output.voice` (name or `{id}`) and `audio.output.language`; `output_modalities: null` resets to automatic | server-realtime.cpp:198-245, 389-430, 677-777; recorded from the real server |
 | Realtime `error` events carry `error.message` | The specific reason (for example `conversation_empty`) is in `error.type`; `code` and `param` are null | recorded from the real server |
-| `/infill` `prompt` is added after the FIM_MID token | It is appended to the input prefix, before the suffix | server-common.cpp:2086-2103; recorded from the real server |
-| `json_schema` and `grammar` are separate options | With both present the server uses `grammar` | server-schema.cpp:276-299; recorded from the real server |
-| A prompt object is `{prompt_string: "string", multimodal_data: [...]}` | Without media, `prompt_string` may also be a token array or a mixed array | server-common.cpp:1222-1225, 1084-1115; recorded from the real server |
-| `reasoning_effort`: any value other than `none` is passed to the template | Values the template does not allow are rejected with 400 | server-common.cpp:1654-1659 |
-| `/control` on a finished completion is a no-op | It answers 200 with `success: false` and a message | recorded from the real server |
-| Anthropic `model` is required; named `tool_choice` selects a tool; `temperature` and `top_p` default to 1.0 | `model` is not read on a single-model server; `tool` and `any` both mean any required tool; omitted settings use the server defaults; `stop_sequences` may be a string | server-chat.cpp:598-687; server-common.cpp:1512-1517; recorded from the real server |
-| `/tts` `response_format` is one of wav, pcm, pcm16 | An unknown value yields WAV instead of an error; `max_tokens` is an undocumented alias of `n_predict` | server-schema.cpp:537-580 |
-| `/v1/audio/speech` PCM is mono; omitted `stream_format` means buffered | The model's channel count is kept; a native `stream: true` survives the conversion | server-chat.cpp:785-815; server-context.cpp:7145-7219 |
-| Tokenize `content` is required text; the `"á"` example lists two tokens | `content` may be absent or a mixed list; the real output has a leading whitespace token before the two byte pieces | server-context.cpp:6419-6457; recorded from the real server |
-| `/apply-template` takes `messages` | The handler runs the full chat parser (tools, tool choice, response format, continuation) and never streams | server-context.cpp:6391-6404; server-common.cpp:1498-1698 |
-| Responses follow the OpenAI Responses API | Stored and previous responses, non-function tools and file input are rejected or skipped; the non-stream output has `completed_at`, the final stream snapshot does not | server-chat.cpp:6-352; recorded from the real server |
+
+### System One
+
+| README says | Server does | Evidence |
+|---|---|---|
 | System One `state` may be null for lfm2-d1 and lfm2-d1-omni | The source also accepts null for vllm-d3 and both lfm3-d1 variants | README 1929; server-decision.cpp:236-253 |
 | A `score` answer is the expected level index | The lfm3-d1 variants return the median | README 1974; server-decision.cpp:1760-1812 |
 | `noul` criteria describe `true` and `false` | The source also accepts model-specific no/yes aliases. It reads both `files` and `images`, so sending both doubles the input | server-decision.cpp:254-382, 389-477 |
-| LoRA adapter updates can be routed like other POST endpoints | In router mode `POST /lora-adapters?model=...` returns 400: the router reads `model` from an object body, but the endpoint needs an array | server-models.cpp:2165-2172; server-context.cpp:6626-6631; recorded from the real server |
-| Embeddings support `encoding_format: base64` | The encoded bytes use the server's native float byte order, not a fixed byte order | server-common.cpp:1733-1738 |
-| `/tts` multipart upload takes the same options as JSON | The multipart parser converts `stream` and numbers but not `raw_prompt`, which silently becomes false | server-http.cpp:825-839; server-context.cpp:5706-5722 |
-| Native stream partials carry only `content`, `tokens`, and `stop` | Partials also carry `index`, token counters, `id_slot`, and optional progress, timings and probabilities | README 626; server-task.cpp:1052-1073 |
-| `/v1/completions` accepts OpenAI completion prompts and supports native completion features | With a multimodal projector loaded, the route accepts only a string prompt. It does not accept multimodal object prompts with or without a projector | README 1430-1438; server-context.cpp:5332-5337, 5993-6003; server-common.cpp:1210-1228 |
-| Router `memory.effective` is null unless the model is loaded | The value of the last load is kept while the model sleeps and is cleared only on unload | README 2251; server-models-sched.cpp:354-365, 553-555; recorded from the real server |
 | System One choice `confidence` of zero means all options are equally likely | The lfm3-d1 variants report the maximum probability instead (0.5 for two equally likely options) | server-decision.cpp:1701-1711 |
 | System One question `instructions` may be omitted for h2o-lightning and OCR models | The source also accepts omitted instructions for vllm-d3 | server-decision.cpp:265-273 |
-| `tokens_cached` is the number of prompt tokens reused from the cache | It is the size of the slot cache when generation ends, generated tokens included | server-context.cpp:2415-2416 |
-| POST `/completion` documents `repeat_penalty` default 1.1 and a sampler chain without `penalties` and `top_n_sigma` | The default is 1.0 and the chain includes both, matching the CLI table and recorded `/props` responses | README 124-137; recorded from the real server |
+
+### Model lists and the router
+
+| README says | Server does | Evidence |
+|---|---|---|
+| `status` of a model in `GET /models`: `unloaded` has no `args`; `downloading` carries nested `progress` | `status` always has `args` (and often `preset`), also when unloaded; the list does not emit download progress | server-models.cpp:2214-2341; recorded from the real server |
+| `/models/sse` download progress is `data[URL]`; status updates are `model_status` events | Progress is `data.progress[URL]`; updates use `status_change` except the first router `model_status` event | server-models.cpp:1458-1522, 1965-2012; recorded from the real server |
+| `GET /v1/models` returns `object` and `data` | A single-model server also returns a separate Ollama-style `models` array next to `data` | server-context.cpp:5586-5644; recorded from the real server |
+| `DELETE /models` answers `{"success": true}` | Deleting a sidecar that is not there can answer 200 with `success: false` | recorded from the real server |
+| Router `memory.effective` is null unless the model is loaded | The value of the last load is kept while the model sleeps and is cleared only on unload | README 2251; server-models-sched.cpp:354-365, 553-555; recorded from the real server |
 
 ## License
 
