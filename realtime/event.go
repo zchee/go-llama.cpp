@@ -127,9 +127,8 @@ func (m *MaxOutputTokens) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	return errors.New("realtime: expected a positive integer or inf")
 }
 
-// Voice identifies a voice by name or by an object containing its ID. Set exactly one field.
-// The openai package uses a separate SpeechVoice for a top-level HTTP request member that can omit the
-// id and encode null directly, whereas realtime always encodes a reference id and wraps Voice for null.
+// Voice selects a voice for audio.output.voice. Set exactly one of Name or Reference.
+// A reference always encodes its id member. To clear the voice, set AudioOutput.Voice to Nullable[Voice]{Null: true}.
 type Voice struct {
 	// Name selects a model voice as a JSON string instead of an ID object.
 	Name *string
