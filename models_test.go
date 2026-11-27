@@ -208,23 +208,7 @@ func FuzzModelsEvent(f *testing.F) {
 			f.Add(e.Data)
 		}
 	}
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var first, second ModelEvent
-		if err := json.Unmarshal(data, &first); err != nil {
-			return
-		}
-		encoded, err := json.Marshal(first, json.Deterministic(true))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.Unmarshal(encoded, &second); err != nil {
-			t.Fatal(err)
-		}
-		again, err := json.Marshal(second, json.Deterministic(true))
-		if err != nil || !bytes.Equal(encoded, again) {
-			t.Errorf("unstable encoding: %s -> %s (%v)", encoded, again, err)
-		}
-	})
+	f.Fuzz(fuzzModelEncoding[ModelEvent])
 }
 
 func TestModelsRejectAmbiguousSidecar(t *testing.T) {
@@ -299,23 +283,25 @@ func FuzzModelsStatus(f *testing.F) {
 			f.Add([]byte(m.Status))
 		}
 	}
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var first, second ModelStatus
-		if err := json.Unmarshal(data, &first); err != nil {
-			return
-		}
-		encoded, err := json.Marshal(first, json.Deterministic(true))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.Unmarshal(encoded, &second); err != nil {
-			t.Fatal(err)
-		}
-		again, err := json.Marshal(second, json.Deterministic(true))
-		if err != nil || !bytes.Equal(encoded, again) {
-			t.Errorf("unstable status encoding: %s -> %s (%v)", encoded, again, err)
-		}
-	})
+	f.Fuzz(fuzzModelEncoding[ModelStatus])
+}
+
+func fuzzModelEncoding[T any](t *testing.T, data []byte) {
+	var first, second T
+	if err := json.Unmarshal(data, &first); err != nil {
+		return
+	}
+	encoded, err := json.Marshal(first, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &second); err != nil {
+		t.Fatal(err)
+	}
+	again, err := json.Marshal(second, json.Deterministic(true))
+	if err != nil || !bytes.Equal(encoded, again) {
+		t.Errorf("unstable %T encoding: %s -> %s (%v)", first, encoded, again, err)
+	}
 }
 
 func TestModelsNewRequest(t *testing.T) {
