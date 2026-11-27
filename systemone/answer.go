@@ -17,6 +17,7 @@ package systemone
 import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 )
 
@@ -113,7 +114,7 @@ func (a *Answer) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 			return err
 		}
 		if v.Probabilities == nil {
-			return fmt.Errorf("systemone: choice answer requires probabilities")
+			return errors.New("systemone: choice answer requires probabilities")
 		}
 		a.Value = v.ChoiceAnswer
 	case "score":
@@ -122,7 +123,7 @@ func (a *Answer) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 			return err
 		}
 		if v.Probabilities == nil || v.Legend == nil {
-			return fmt.Errorf("systemone: score answer requires probabilities and a legend")
+			return errors.New("systemone: score answer requires probabilities and a legend")
 		}
 		a.Value = v.ScoreAnswer
 	case "noul":

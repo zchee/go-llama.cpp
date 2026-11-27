@@ -17,6 +17,7 @@ package systemone
 import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 )
 
@@ -119,7 +120,7 @@ func (q *Question) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	case "choice", "":
 		var c ChoiceCriteria
 		if w.Criteria.Kind() != '{' {
-			return fmt.Errorf("systemone: choice criteria must be an object")
+			return errors.New("systemone: choice criteria must be an object")
 		}
 		if err := json.Unmarshal(w.Criteria, &c); err != nil {
 			return err
@@ -128,7 +129,7 @@ func (q *Question) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	case "score":
 		var c ScoreCriteria
 		if w.Criteria.Kind() != '[' {
-			return fmt.Errorf("systemone: score criteria must be an array")
+			return errors.New("systemone: score criteria must be an array")
 		}
 		if err := json.Unmarshal(w.Criteria, &c); err != nil {
 			return err
