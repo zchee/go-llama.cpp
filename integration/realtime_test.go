@@ -210,6 +210,7 @@ func TestRealtimeConversation(t *testing.T) {
 func TestRealtimeOwnership(t *testing.T) {
 	c, obs := presetRealtimeOmni.server(t).Client(t)
 	s := realtimeDial(t, c, &realtime.DialOptions{Model: "tinyLFM3-Omni", RequestOptions: []llama.RequestOption{llama.WithHeader("X-Client-Test", "session")}})
+	var sawCreated bool
 	for ev, err := range s.Events() {
 		if err != nil || ev.Type != realtime.SessionCreated {
 			t.Fatalf("first event = %s, %v", ev.Type, err)
@@ -221,7 +222,11 @@ func TestRealtimeOwnership(t *testing.T) {
 		if !rejected {
 			t.Fatal("overlapping reader not rejected")
 		}
+		sawCreated = true
 		break
+	}
+	if !sawCreated {
+		t.Fatal("event stream ended before session.created")
 	}
 	const sends = 4
 	sent := make(chan error, sends)

@@ -136,6 +136,9 @@ func TestOAICompletions(t *testing.T) {
 				break
 			}
 		}
+		if n != 2 {
+			t.Errorf("stream yielded %d chunks, want 2 before breaking", n)
+		}
 		ex := obs.Exchanges()
 		if len(ex) != 1 || !ex[0].BodyClosed() {
 			t.Fatalf("after break: %d exchanges, body closed=%t", len(ex), len(ex) == 1 && ex[0].BodyClosed())
