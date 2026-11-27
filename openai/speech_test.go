@@ -45,11 +45,18 @@ func TestSpeechWire(t *testing.T) {
 			prefix := "testdata/speech/" + tc.fixture
 			data := jsontest.ReadFile(t, prefix+".req.json")
 			parsed := jsontest.CheckWire[SpeechRequest](t, data)
+			var before SpeechRequest
+			if err := json.Unmarshal(data, &before); err != nil {
+				t.Fatal(err)
+			}
 			req, err := c.NewRequest(t.Context(), http.MethodPost, "/v1/audio/speech", parsed, llama.WithModelQuery("audio"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer req.Body.Close()
+			if diff := gocmp.Diff(&before, parsed); diff != "" {
+				t.Fatalf("NewRequest modified the caller's SpeechRequest (-before +after):\n%s", diff)
+			}
 			if req.Method != http.MethodPost || req.URL.Path != "/v1/audio/speech" || req.URL.RawQuery != "model=audio" || req.Header.Get("Content-Type") != "application/json" {
 				t.Fatalf("unexpected request: %s %v %v", req.Method, req.URL, req.Header)
 			}
