@@ -140,8 +140,12 @@ func sdkJSON(t *testing.T, v any) jsontext.Value {
 
 func (x *sdkExchange) checkResponse[T any](t *testing.T, sdk any) {
 	t.Helper()
+	response := reflect.Indirect(reflect.ValueOf(sdk))
+	if !response.IsValid() {
+		t.Fatalf("SDK returned a nil %T response\nwire: %s", sdk, x.response)
+	}
 	local := jsontest.RoundTrip[T](t, x.response)
-	checkSDKFields(t, "", sdkJSON(t, local), reflect.Indirect(reflect.ValueOf(sdk)))
+	checkSDKFields(t, "", sdkJSON(t, local), response)
 }
 
 // Walk only members sent on the wire: the generated SDK structs also expose zero-valued fields for absent members.

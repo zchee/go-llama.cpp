@@ -107,6 +107,9 @@ func TestSDKEmbeddings(t *testing.T) {
 			if err != nil {
 				t.Fatalf("SDK: %v\nwire: %s", err, x.response)
 			}
+			if resp == nil {
+				t.Fatalf("SDK returned a nil embeddings response\nwire: %s", x.response)
+			}
 			local := jsontest.RoundTrip[openai.EmbeddingResponse](t, x.response)
 			if local.Object != string(resp.Object) || local.Model != resp.Model || int64(local.Usage.PromptTokens) != resp.Usage.PromptTokens || int64(local.Usage.TotalTokens) != resp.Usage.TotalTokens || len(local.Data) != len(resp.Data) || len(local.Data) == 0 {
 				t.Fatalf("embedding envelope mismatch: SDK %+v; wire: %s", resp, x.response)
