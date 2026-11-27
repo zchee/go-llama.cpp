@@ -57,6 +57,9 @@ func TestDialConnectionFailure(t *testing.T) {
 				_ = s.CloseNow()
 				t.Fatalf("Dial to a closed port succeeded")
 			}
+			if op, ok := errors.AsType[*net.OpError](err); !ok || op.Op != "dial" {
+				t.Errorf("error = %v, want a wrapped network dial error", err)
+			}
 			if !strings.HasPrefix(err.Error(), "realtime: dial:") {
 				t.Errorf("error = %v, want a dial error", err)
 			}
