@@ -145,9 +145,7 @@ func (p *Payload) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	return nil
 }
 
-// Request asks named questions about State. Model selects the target model in router mode;
-// single-model servers ignore it. Files and Images are alternative spellings for a list of media
-// data URLs; set at most one. Extra cannot override any named request field.
+// Request asks named questions about State.
 type Request struct {
 	// Model selects the target in router mode and is ignored by a single-model server.
 	Model string `json:"model,omitzero"`
@@ -157,9 +155,9 @@ type Request struct {
 	Questions map[string]Question `json:"questions"`
 	// Files supplies optional media data URLs to place before State, subject to the model's media and count limits.
 	Files []string `json:"files,omitzero"`
-	// Images is an optional alias for Files, which the client does not allow in the same request.
+	// Images is an alias for Files. Encoding fails when both are set.
 	Images []string `json:"images,omitzero"`
-	// Extra holds members this type does not declare; they survive a round trip.
+	// Extra preserves unknown members on a round trip. Encoding fails when a key names a declared request field.
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
