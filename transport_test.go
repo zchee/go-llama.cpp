@@ -552,6 +552,17 @@ func TestRetryLoop(t *testing.T) {
 			wantAttempts: 2,
 			wantErr:      errBad,
 		},
+		"error: permanent on the final attempt": {
+			policy: policy,
+			steps: []step{
+				{err: errUnavailable, retryable: true},
+				{err: errUnavailable, retryable: true},
+				{err: errUnavailable, retryable: true},
+				{err: errBad},
+			},
+			wantAttempts: 4,
+			wantErr:      errBad,
+		},
 		"success: retries disabled by MaxAttempts 1": {
 			policy:       RetryPolicy{MaxAttempts: 1},
 			steps:        []step{{err: errUnavailable, retryable: true}, {val: "never"}},
