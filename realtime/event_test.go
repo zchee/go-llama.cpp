@@ -61,8 +61,8 @@ func TestRealtimeWire(t *testing.T) {
 	jsontest.CheckFallbacks[realtime.VoiceReference](t)
 }
 
-// Duplex uses the same append, cancel, text and audio frames as a conversation but has no commit or create.
-func TestRealtimeDuplexFrames(t *testing.T) {
+// The conversation recording includes the frame kinds shared with duplex sessions, which omit commit and create.
+func TestRealtimeConversationFrameKinds(t *testing.T) {
 	want := map[realtime.EventType]bool{realtime.InputAudioBufferAppend: true, realtime.ResponseCancel: true, realtime.ResponseCreated: true, realtime.ResponseOutputTextDelta: true, realtime.ResponseOutputAudioDelta: true, realtime.ResponseDone: true}
 	got := map[realtime.EventType]bool{}
 	for _, dir := range []string{"client", "server"} {
