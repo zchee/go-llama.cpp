@@ -15,11 +15,11 @@
 package anthropic
 
 import (
-	"iter"
 	"net/http/httptrace"
 	"testing"
 
 	llama "github.com/zchee/go-llama.cpp"
+	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
 func TestNilRequiredRequest(t *testing.T) {
@@ -37,7 +37,7 @@ func TestNilRequiredRequest(t *testing.T) {
 		want string
 	}{
 		"error: Messages":       {requestError(c.Messages(ctx, nil)), "anthropic: nil messages request"},
-		"error: MessagesStream": {streamError(t, c.MessagesStream(ctx, nil)), "anthropic: nil messages stream request"},
+		"error: MessagesStream": {jsontest.SingleErrorStream(t, c.MessagesStream(ctx, nil), llama.ErrStreamConsumed), "anthropic: nil messages stream request"},
 		"error: CountTokens":    {requestError(c.CountTokens(ctx, nil)), "anthropic: nil count tokens request"},
 	}
 	for name, tt := range tests {
@@ -47,15 +47,4 @@ func TestNilRequiredRequest(t *testing.T) {
 			}
 		})
 	}
-}
-
-func streamError[T any](t *testing.T, seq iter.Seq2[*T, error]) error {
-	t.Helper()
-	for v, err := range seq {
-		if v != nil {
-			t.Errorf("unexpected stream value for nil request: %v", v)
-		}
-		return err
-	}
-	return nil
 }
