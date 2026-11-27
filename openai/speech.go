@@ -39,10 +39,8 @@ type SpeechRequest struct {
 	Extra map[string]jsontext.Value `json:",embed"`
 }
 
-// SpeechVoice is either a name or a voice object. Set at most one: the zero SpeechVoice means no voice and
-// encodes as JSON null, which the server also reads as no voice.
-// The realtime package uses a separate Voice for audio.output.voice, where a reference always encodes an
-// id and null is represented by a wrapper; this HTTP request voice can omit the id and encode null itself.
+// SpeechVoice selects a voice by Name or by Object, whose id is optional. Set at most one field.
+// The zero value encodes as JSON null on its own and is omitted from a SpeechRequest. Both mean no voice selection.
 type SpeechVoice struct {
 	// Name supplies the string form of a voice.
 	Name *string
