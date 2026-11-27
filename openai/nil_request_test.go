@@ -16,6 +16,7 @@ package openai
 
 import (
 	"context"
+	"iter"
 	"net/http/httptrace"
 	"testing"
 
@@ -41,19 +42,25 @@ func TestNilRequiredRequest(t *testing.T) {
 	}{
 		"error: ChatCompletions": {func(t *testing.T) error { return requestError(c.ChatCompletions(ctx(t), nil)) }, "openai: nil chat completions request"},
 		"error: ChatCompletionsStream": {func(t *testing.T) error {
-			return jsontest.SingleErrorStream(t, c.ChatCompletionsStream(ctx(t), nil), llama.ErrStreamConsumed)
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*ChatCompletionChunk, error] {
+				return c.ChatCompletionsStream(ctx(t), nil)
+			}, llama.ErrStreamConsumed)
 		}, "openai: nil chat completions stream request"},
 		"error: ChatInputTokens":       {func(t *testing.T) error { return requestError(c.ChatInputTokens(ctx(t), nil)) }, "openai: nil chat input tokens request"},
 		"error: ControlChatCompletion": {func(t *testing.T) error { return requestError(c.ControlChatCompletion(ctx(t), nil)) }, "openai: nil control chat completion request"},
 		"error: Completions":           {func(t *testing.T) error { return requestError(c.Completions(ctx(t), nil)) }, "openai: nil completions request"},
 		"error: CompletionsStream": {func(t *testing.T) error {
-			return jsontest.SingleErrorStream(t, c.CompletionsStream(ctx(t), nil), llama.ErrStreamConsumed)
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*CompletionResponse, error] {
+				return c.CompletionsStream(ctx(t), nil)
+			}, llama.ErrStreamConsumed)
 		}, "openai: nil completions stream request"},
 		"error: Embeddings":           {func(t *testing.T) error { return requestError(c.Embeddings(ctx(t), nil)) }, "openai: nil embeddings request"},
 		"error: Responses":            {func(t *testing.T) error { return requestError(c.Responses(ctx(t), nil)) }, "openai: nil responses request"},
 		"error: ResponsesInputTokens": {func(t *testing.T) error { return requestError(c.ResponsesInputTokens(ctx(t), nil)) }, "openai: nil responses input tokens request"},
 		"error: ResponsesStream": {func(t *testing.T) error {
-			return jsontest.SingleErrorStream(t, c.ResponsesStream(ctx(t), nil), llama.ErrStreamConsumed)
+			return jsontest.SingleErrorStream(t, func() iter.Seq2[*ResponseEvent, error] {
+				return c.ResponsesStream(ctx(t), nil)
+			}, llama.ErrStreamConsumed)
 		}, "openai: nil responses stream request"},
 		"error: Speech": {func(t *testing.T) error { return requestError(c.Speech(ctx(t), nil)) }, "openai: nil speech request"},
 	}

@@ -20,42 +20,53 @@ import (
 	"testing"
 )
 
-// SingleErrorStream checks that seq yields only (nil, error) on its first range
-// and only (nil, consumed) on its second, allowing wrapped consumed errors.
-// It returns the first error so the caller can check the request-specific failure.
-func SingleErrorStream[T any](t testing.TB, seq iter.Seq2[*T, error], consumed error) error {
+// SingleErrorStream stops one sequence from newSeq after its first (nil, error)
+// pair and drains another, checking that it yields exactly one such pair with
+// the same error message. Both must then yield only (nil, consumed), allowing
+// wrapped consumed errors. It returns the drained sequence's first error.
+func SingleErrorStream[T any](t testing.TB, newSeq func() iter.Seq2[*T, error], consumed error) error {
 	t.Helper()
-	var first error
-	count := 0
-	for v, err := range seq {
-		if count == 0 {
-			first = err
+	var first [2]error
+	for i, mode := range [...]string{"early stop", "drain"} {
+		seq := newSeq()
+		count := 0
+		for v, err := range seq {
+			if count == 0 {
+				first[i] = err
+			}
+			count++
+			if v != nil {
+				t.Errorf("%s: first range yielded a non-nil value: %v", mode, *v)
+			}
+			if err == nil {
+				t.Errorf("%s: first range yielded a nil error", mode)
+			}
+			if i == 0 {
+				break
+			}
 		}
-		count++
-		if v != nil {
-			t.Errorf("first range yielded a non-nil value: %v", *v)
+		if count != 1 {
+			t.Errorf("%s: first range yielded %d pairs, want 1", mode, count)
 		}
-		if err == nil {
-			t.Errorf("first range yielded a nil error")
+		count = 0
+		for v, err := range seq {
+			count++
+			if v != nil {
+				t.Errorf("%s: second range yielded a non-nil value: %v", mode, *v)
+			}
+			if !errors.Is(err, consumed) {
+				t.Errorf("%s: second range error = %v, want %v", mode, err, consumed)
+			}
+		}
+		if count != 1 {
+			t.Errorf("%s: second range yielded %d pairs, want 1", mode, count)
 		}
 	}
-	if count != 1 {
-		t.Errorf("first range yielded %d pairs, want 1", count)
+	stopped, drained := first[0], first[1]
+	if stopped != nil && drained != nil && stopped.Error() != drained.Error() {
+		t.Errorf("early stop error = %q, drained error = %q", stopped, drained)
 	}
-	count = 0
-	for v, err := range seq {
-		count++
-		if v != nil {
-			t.Errorf("second range yielded a non-nil value: %v", *v)
-		}
-		if !errors.Is(err, consumed) {
-			t.Errorf("second range error = %v, want %v", err, consumed)
-		}
-	}
-	if count != 1 {
-		t.Errorf("second range yielded %d pairs, want 1", count)
-	}
-	return first
+	return drained
 }
 
 // StreamFrameCuts returns every recorded SSE prefix ending in two consecutive newlines.

@@ -15,6 +15,7 @@
 package llama
 
 import (
+	"iter"
 	"net/http/httptrace"
 	"testing"
 
@@ -31,16 +32,18 @@ func TestNilRequiredRequest(t *testing.T) {
 		t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
 	}})
 	requestError := func(_ any, err error) error { return err }
+	completionStream := func() iter.Seq2[*CompletionResponse, error] { return c.CompletionStream(ctx, nil) }
+	infillStream := func() iter.Seq2[*CompletionResponse, error] { return c.InfillStream(ctx, nil) }
 	tests := map[string]struct {
 		got  error
 		want string
 	}{
 		"error: Completion":       {requestError(c.Completion(ctx, nil)), "llama: nil completion request"},
 		"error: CompletionBatch":  {requestError(c.CompletionBatch(ctx, nil)), "llama: nil completion batch request"},
-		"error: CompletionStream": {jsontest.SingleErrorStream(t, c.CompletionStream(ctx, nil), ErrStreamConsumed), "llama: nil completion stream request"},
+		"error: CompletionStream": {jsontest.SingleErrorStream(t, completionStream, ErrStreamConsumed), "llama: nil completion stream request"},
 		"error: Infill":           {requestError(c.Infill(ctx, nil)), "llama: nil infill request"},
 		"error: InfillBatch":      {requestError(c.InfillBatch(ctx, nil)), "llama: nil infill batch request"},
-		"error: InfillStream":     {jsontest.SingleErrorStream(t, c.InfillStream(ctx, nil), ErrStreamConsumed), "llama: nil infill stream request"},
+		"error: InfillStream":     {jsontest.SingleErrorStream(t, infillStream, ErrStreamConsumed), "llama: nil infill stream request"},
 		"error: ApplyTemplate":    {requestError(c.ApplyTemplate(ctx, nil)), "llama: nil apply template request"},
 		"error: Detokenize":       {requestError(c.Detokenize(ctx, nil)), "llama: nil detokenize request"},
 		"error: DownloadModel":    {requestError(c.DownloadModel(ctx, nil)), "llama: nil download model request"},

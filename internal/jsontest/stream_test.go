@@ -17,6 +17,7 @@ package jsontest
 import (
 	"errors"
 	"fmt"
+	"iter"
 	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -32,33 +33,41 @@ func TestSingleErrorStream(t *testing.T) {
 	first := []pair{{nil, invalid}}
 	second := []pair{{nil, fmt.Errorf("stream: %w", consumed)}}
 	tests := map[string]struct {
-		first, second []pair
-		want          []string
+		stoppedFirst, drainedFirst []pair
+		afterBreak, afterDrain     []pair
+		want                       []string
 	}{
-		"success: wrapped consumed error": {first, second, nil},
-		"error: two first pairs":          {[]pair{{nil, invalid}, {nil, consumed}}, second, []string{"first range yielded 2 pairs, want 1"}},
-		"error: first value and no error": {[]pair{{new(7), nil}}, second, []string{"first range yielded a non-nil value: 7", "first range yielded a nil error"}},
-		"error: wrong second pair":        {first, []pair{{new(8), invalid}}, []string{"second range yielded a non-nil value: 8", "second range error = invalid request, want consumed"}},
-		"error: empty ranges":             {nil, nil, []string{"first range yielded 0 pairs, want 1", "second range yielded 0 pairs, want 1"}},
+		"success: wrapped consumed error": {first, []pair{{nil, errors.New(invalid.Error())}}, second, second, nil},
+		"error: two first pairs":          {first, []pair{{nil, invalid}, {nil, consumed}}, second, second, []string{"drain: first range yielded 2 pairs, want 1"}},
+		"error: first value and no error": {first, []pair{{new(7), nil}}, second, second, []string{"drain: first range yielded a non-nil value: 7", "drain: first range yielded a nil error"}},
+		"error: wrong second pair":        {first, first, second, []pair{{new(8), invalid}}, []string{"drain: second range yielded a non-nil value: 8", "drain: second range error = invalid request, want consumed"}},
+		"error: empty ranges":             {nil, nil, nil, nil, []string{"early stop: first range yielded 0 pairs, want 1", "early stop: second range yielded 0 pairs, want 1", "drain: first range yielded 0 pairs, want 1", "drain: second range yielded 0 pairs, want 1"}},
+		"error: not consumed after break": {first, first, first, second, []string{"early stop: second range error = invalid request, want consumed"}},
+		"error: different first errors":   {[]pair{{nil, errors.New("other request")}}, first, second, second, []string{`early stop error = "other request", drained error = "invalid request"`}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			pairs := tt.first
-			seq := func(yield func(*int, error) bool) {
-				current := pairs
-				pairs = tt.second
-				for _, p := range current {
-					if !yield(p.value, p.err) {
-						return
+			next := tt.stoppedFirst
+			newSeq := func() iter.Seq2[*int, error] {
+				pairs := next
+				next = tt.drainedFirst
+				return func(yield func(*int, error) bool) {
+					current := pairs
+					pairs = tt.afterDrain
+					for _, p := range current {
+						if !yield(p.value, p.err) {
+							pairs = tt.afterBreak
+							return
+						}
 					}
 				}
 			}
 			messages, fatal := Failures(t, func(tb testing.TB) {
 				var want error
-				if len(tt.first) != 0 {
-					want = tt.first[0].err
+				if len(tt.drainedFirst) != 0 {
+					want = tt.drainedFirst[0].err
 				}
-				if got := SingleErrorStream(tb, seq, consumed); !errors.Is(got, want) {
+				if got := SingleErrorStream(tb, newSeq, consumed); !errors.Is(got, want) {
 					t.Errorf("returned error = %v, want %v", got, want)
 				}
 			})

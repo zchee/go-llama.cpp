@@ -15,6 +15,7 @@
 package anthropic
 
 import (
+	"iter"
 	"net/http/httptrace"
 	"testing"
 
@@ -32,12 +33,13 @@ func TestNilRequiredRequest(t *testing.T) {
 		t.Errorf("unexpected HTTP connection attempt to %s for a nil request", hostPort)
 	}})
 	requestError := func(_ any, err error) error { return err }
+	messagesStream := func() iter.Seq2[*MessageEvent, error] { return c.MessagesStream(ctx, nil) }
 	tests := map[string]struct {
 		got  error
 		want string
 	}{
 		"error: Messages":       {requestError(c.Messages(ctx, nil)), "anthropic: nil messages request"},
-		"error: MessagesStream": {jsontest.SingleErrorStream(t, c.MessagesStream(ctx, nil), llama.ErrStreamConsumed), "anthropic: nil messages stream request"},
+		"error: MessagesStream": {jsontest.SingleErrorStream(t, messagesStream, llama.ErrStreamConsumed), "anthropic: nil messages stream request"},
 		"error: CountTokens":    {requestError(c.CountTokens(ctx, nil)), "anthropic: nil count tokens request"},
 	}
 	for name, tt := range tests {
