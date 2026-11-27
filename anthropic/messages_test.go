@@ -35,9 +35,7 @@ import (
 
 func checkAnthropicWire[T any](t *testing.T, data []byte) *T {
 	t.Helper()
-	got := jsontest.RoundTrip[T](t, data)
-	jsontest.InjectUnknown[T](t, data)
-	jsontest.NoUnknown[T](t, data, nil)
+	got := jsontest.CheckWire[T](t, data)
 	jsontest.CheckFallbacks[T](t)
 	return got
 }
