@@ -44,9 +44,7 @@ func TestSpeechWire(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			prefix := "testdata/speech/" + tc.fixture
 			data := jsontest.ReadFile(t, prefix+".req.json")
-			parsed := jsontest.RoundTrip[SpeechRequest](t, data)
-			jsontest.InjectUnknown[SpeechRequest](t, data)
-			jsontest.NoUnknown[SpeechRequest](t, data, nil)
+			parsed := jsontest.CheckWire[SpeechRequest](t, data)
 			req, err := c.NewRequest(t.Context(), http.MethodPost, "/v1/audio/speech", parsed, llama.WithModelQuery("audio"))
 			if err != nil {
 				t.Fatal(err)

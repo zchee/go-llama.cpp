@@ -35,9 +35,7 @@ import (
 
 func responsesWire[T any](t testing.TB, data []byte) *T {
 	t.Helper()
-	v := jsontest.RoundTrip[T](t, data)
-	jsontest.InjectUnknown[T](t, data)
-	jsontest.NoUnknown[T](t, data, nil)
+	v := jsontest.CheckWire[T](t, data)
 	jsontest.CheckFallbacks[T](t)
 	return v
 }

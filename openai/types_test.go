@@ -83,9 +83,7 @@ func TestMessageContentJSON(t *testing.T) {
 
 func TestToolChoiceAliases(t *testing.T) {
 	data := jsontest.ReadFile(t, "../testdata/apply-template/allowed_tools.req.json")
-	got := jsontest.RoundTrip[chatShape](t, data)
-	jsontest.InjectUnknown[chatShape](t, data)
-	jsontest.NoUnknown[chatShape](t, data, nil)
+	got := jsontest.CheckWire[chatShape](t, data)
 	jsontest.CheckFallbacks[AllowedToolChoice](t)
 	want := ToolChoiceAllowedTools("required", "weather")
 	if diff := gocmp.Diff(want, got.ToolChoice); diff != "" {
