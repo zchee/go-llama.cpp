@@ -25,8 +25,8 @@ import (
 
 // TTSParams holds the synthesis options shared by the native and OpenAI speech endpoints.
 type TTSParams struct {
-	// Input is the text to speak. Prompt is its alias when Input is nil; a present but empty Input is
-	// rejected by the server even when Prompt is set, so presence is preserved.
+	// Input is the text to speak. When it is nil, the server uses Prompt. The server rejects an explicitly empty
+	// Input even when Prompt is set, so the client sends a non-nil empty Input as is.
 	Input *string `json:"input,omitzero"`
 	// Prompt supplies the text when Input is absent.
 	Prompt *string `json:"prompt,omitzero"`
@@ -36,10 +36,9 @@ type TTSParams struct {
 	Lang *string `json:"lang,omitzero"`
 	// RawPrompt bypasses the "tts" template to send model-ready text such as phonemes; it defaults to false.
 	RawPrompt *bool `json:"raw_prompt,omitzero"`
-	// SpeakerRef is uploaded as a multipart file and takes precedence over SpeakerRefB64. When RawPrompt is
-	// also set, the request is sent as JSON carrying the reference bytes in SpeakerRefB64 instead: the
-	// server's multipart parser restores the types of its numeric and stream fields but leaves raw_prompt a
-	// string, which the handler silently reads as false.
+	// SpeakerRef takes precedence over SpeakerRefB64. The client uploads it as a multipart file unless RawPrompt
+	// is non-nil, in which case it sends the bytes as SpeakerRefB64 in JSON. Unlike numeric and stream fields,
+	// multipart raw_prompt remains a string that the server silently reads as false.
 	SpeakerRef *SpeakerRef `json:"-"`
 	// SpeakerRefB64 supplies optional reference audio for voice cloning, encoded as base64 in JSON.
 	SpeakerRefB64 []byte `json:"speaker_ref_b64,omitzero"`
