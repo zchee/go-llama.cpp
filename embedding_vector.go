@@ -15,6 +15,7 @@ package llama
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
@@ -55,10 +56,7 @@ func (v EmbeddingVector) Values() []float64 { return v.values }
 
 // Format returns the vector's wire format.
 func (v EmbeddingVector) Format() EmbeddingEncodingFormat {
-	if v.format == "" {
-		return EmbeddingEncodingFloat
-	}
-	return v.format
+	return cmp.Or(v.format, EmbeddingEncodingFloat)
 }
 
 // MarshalJSONTo implements json.MarshalerTo, keeping the vector's wire format.
