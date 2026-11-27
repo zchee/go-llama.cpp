@@ -333,16 +333,18 @@ func TestObserverConcurrentReads(t *testing.T) {
 			reads++
 		}
 	}()
+	defer func() {
+		close(stop)
+		if reads := <-done; reads == 0 {
+			t.Errorf("the reader never observed the exchanges")
+		}
+	}()
 	for range 3 {
 		for _, err := range llama.Stream[streamChunk](t.Context(), c, http.MethodPost, "/completion", streamRequest) {
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
-	}
-	close(stop)
-	if reads := <-done; reads == 0 {
-		t.Errorf("the reader never observed the exchanges")
 	}
 	ex := obs.Exchanges()
 	if len(ex) != 3 || ex[2].StatusCode != http.StatusOK || !ex[2].BodyClosed() {
