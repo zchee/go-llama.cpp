@@ -148,14 +148,18 @@ func CacheDir() (string, error) {
 // AssetError reports that a model file could not be obtained, which is a problem of the test environment rather
 // than a test failure.
 type AssetError struct {
+	// Model is the name of the unavailable model.
 	Model string
-	Err   error
+	// Err is the underlying error.
+	Err error
 }
 
+// Error returns a message naming the unavailable model and the underlying error.
 func (e *AssetError) Error() string {
 	return fmt.Sprintf("model asset %q unavailable: %v", e.Model, e.Err)
 }
 
+// Unwrap returns the underlying error.
 func (e *AssetError) Unwrap() error { return e.Err }
 
 // Fetch returns the path of the model file in cacheDir, downloading it when it is missing. The file is verified
