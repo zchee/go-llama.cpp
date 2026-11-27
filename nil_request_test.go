@@ -15,9 +15,10 @@
 package llama
 
 import (
-	"iter"
 	"net/http/httptrace"
 	"testing"
+
+	"github.com/zchee/go-llama.cpp/internal/jsontest"
 )
 
 func TestNilRequiredRequest(t *testing.T) {
@@ -36,10 +37,10 @@ func TestNilRequiredRequest(t *testing.T) {
 	}{
 		"error: Completion":       {requestError(c.Completion(ctx, nil)), "llama: nil completion request"},
 		"error: CompletionBatch":  {requestError(c.CompletionBatch(ctx, nil)), "llama: nil completion batch request"},
-		"error: CompletionStream": {streamError(t, c.CompletionStream(ctx, nil)), "llama: nil completion stream request"},
+		"error: CompletionStream": {jsontest.SingleErrorStream(t, c.CompletionStream(ctx, nil), ErrStreamConsumed), "llama: nil completion stream request"},
 		"error: Infill":           {requestError(c.Infill(ctx, nil)), "llama: nil infill request"},
 		"error: InfillBatch":      {requestError(c.InfillBatch(ctx, nil)), "llama: nil infill batch request"},
-		"error: InfillStream":     {streamError(t, c.InfillStream(ctx, nil)), "llama: nil infill stream request"},
+		"error: InfillStream":     {jsontest.SingleErrorStream(t, c.InfillStream(ctx, nil), ErrStreamConsumed), "llama: nil infill stream request"},
 		"error: ApplyTemplate":    {requestError(c.ApplyTemplate(ctx, nil)), "llama: nil apply template request"},
 		"error: Detokenize":       {requestError(c.Detokenize(ctx, nil)), "llama: nil detokenize request"},
 		"error: DownloadModel":    {requestError(c.DownloadModel(ctx, nil)), "llama: nil download model request"},
@@ -62,15 +63,4 @@ func TestNilRequiredRequest(t *testing.T) {
 			}
 		})
 	}
-}
-
-func streamError[T any](t *testing.T, seq iter.Seq2[*T, error]) error {
-	t.Helper()
-	for v, err := range seq {
-		if v != nil {
-			t.Errorf("unexpected stream value for nil request: %v", v)
-		}
-		return err
-	}
-	return nil
 }
