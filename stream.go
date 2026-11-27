@@ -17,7 +17,6 @@ package llama
 import (
 	"bytes"
 	"context"
-	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -296,7 +295,7 @@ func eventError(data string, status int, header http.Header) *APIError {
 
 // errorProbe reads only the "error" member of an event.
 type errorProbe struct {
-	Error jsontext.Value `json:"error"`
+	Error *errorObject `json:"error"`
 }
 
 // inlineError returns the error carried by a data-only event shaped {"error": {...}}, or nil for any other event.
@@ -307,14 +306,10 @@ func inlineError(payload string, status int, header http.Header) *APIError {
 	}
 	data := []byte(payload)
 	var probe errorProbe
-	if err := json.Unmarshal(data, &probe); err != nil || probe.Error.Kind() != '{' {
+	if err := json.Unmarshal(data, &probe); err != nil || probe.Error == nil {
 		return nil
 	}
-	var obj errorObject
-	if err := json.Unmarshal(probe.Error, &obj, jsonOptions); err != nil {
-		return nil
-	}
-	return newAPIError(status, &obj, data, header)
+	return newAPIError(status, probe.Error, data, header)
 }
 
 // tailReader remembers the last bytes read so that the end of a stream can be checked for a complete event.
