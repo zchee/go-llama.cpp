@@ -30,9 +30,15 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
       - name: gofmt
-        run: test -z "$(gofmt -s -l . | tee /dev/stderr)"
+        run: |
+          files="$(gofmt -s -l .)"
+          printf '%s\n' "$files" >&2
+          test -z "$files"
       - name: gofumpt
-        run: test -z "$(go run mvdan.cc/gofumpt@v0.12.0 -l -extra . | tee /dev/stderr)"
+        run: |
+          files="$(go run mvdan.cc/gofumpt@v0.12.0 -l -extra .)"
+          printf '%s\n' "$files" >&2
+          test -z "$files"
       - name: modernize
         run: go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@v0.53.0 -test ./... ./integration/...
       - name: go vet
@@ -43,8 +49,9 @@ jobs:
         run: test "$(grep -cv '^#' testdata/endpoints.v1.1.0.txt)" -eq 38
       - name: official SDKs stay out of the library
         run: |
-          if GOWORK=off go list -deps ./... | grep -E 'openai-go|anthropic-sdk-go'; then exit 1; fi
-          if GOWORK=off go list -m all | grep -E 'openai-go|anthropic-sdk-go'; then exit 1; fi
+          deps="$(GOWORK=off go list -deps ./...)"
+          mods="$(GOWORK=off go list -m all)"
+          if printf '%s\n%s\n' "$deps" "$mods" | grep -E 'openai-go|anthropic-sdk-go'; then exit 1; fi
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14.0
