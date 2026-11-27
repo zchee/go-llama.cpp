@@ -36,11 +36,16 @@ func TestMessagesStreamFixtureCuts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			data := jsontest.ReadFile(t, tt.fixture)
 			cuts := jsontest.StreamFrameCuts(t, data)
+			yielded := false
 			for _, err := range llama.DecodeEndpointStream[MessageEvent](bytes.NewReader(cuts[0]), 0, "/v1/messages", 0) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				yielded = true
 				break
+			}
+			if !yielded {
+				t.Fatal("stream ended before yielding the first frame")
 			}
 			for i, cut := range cuts {
 				var events int
