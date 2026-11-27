@@ -45,6 +45,7 @@ package jsontest
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding"
 	"encoding/json/jsontext"
@@ -266,18 +267,9 @@ func unescapePointer(s string) string {
 func skipped(path string, patterns []string) bool {
 	segs := strings.Split(path, "/")
 	for _, p := range patterns {
-		ps := strings.Split(p, "/")
-		if len(ps) != len(segs) {
-			continue
-		}
-		match := true
-		for i := range ps {
-			if ps[i] != "*" && ps[i] != segs[i] {
-				match = false
-				break
-			}
-		}
-		if match {
+		if slices.EqualFunc(strings.Split(p, "/"), segs, func(pattern, segment string) bool {
+			return pattern == "*" || pattern == segment
+		}) {
 			return true
 		}
 	}
@@ -432,19 +424,12 @@ func NoUnknown[T any](t testing.TB, data []byte, allow map[string]string) {
 	var found []string
 	walkExtra(reflect.ValueOf(v).Elem(), "", func(path string, keys []string) {
 		if !skipped(path, patterns) {
-			found = append(found, fmt.Sprintf("%s: %s", pathOrRoot(path), strings.Join(keys, ", ")))
+			found = append(found, fmt.Sprintf("%s: %s", cmp.Or(path, "/"), strings.Join(keys, ", ")))
 		}
 	})
 	if len(found) > 0 {
 		t.Errorf("%T left server members untyped (JSON pointer: member names):\n  %s", v, strings.Join(found, "\n  "))
 	}
-}
-
-func pathOrRoot(p string) string {
-	if p == "" {
-		return "/"
-	}
-	return p
 }
 
 // walkExtra calls fn for every non-empty embed fallback reachable from v, with the JSON pointer of its object.

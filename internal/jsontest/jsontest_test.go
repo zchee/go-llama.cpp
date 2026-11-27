@@ -226,6 +226,12 @@ func TestNoUnknown(t *testing.T) {
 	if len(r.errors) != 0 {
 		t.Errorf("allow patterns did not apply: %v", r.errors)
 	}
+	r = run(t, func(tb testing.TB) {
+		NoUnknown[map[string][]goodInner](tb, []byte(`{"left":[{"x":1}],"right":[{"y":2}]}`), map[string]string{"/left/*": "allowed list"})
+	})
+	if len(r.errors) != 1 || !strings.Contains(r.errors[0], "/right/0: y") || strings.Contains(r.errors[0], "/left/0: x") {
+		t.Errorf("wildcard should exclude only elements of the named list: %v", r.errors)
+	}
 	r = run(t, func(tb testing.TB) { NoUnknown[good](tb, data, map[string]string{"/inner": ""}) })
 	if !r.fatal {
 		t.Errorf("NoUnknown accepted an allow entry without a reason")
