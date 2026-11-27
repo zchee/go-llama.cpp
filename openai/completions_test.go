@@ -150,6 +150,9 @@ func TestCompletionsStreamWire(t *testing.T) {
 					t.Errorf("accumulated stream text is empty")
 				}
 				last := chunks[len(chunks)-1]
+				if len(last.Choices) == 0 {
+					t.Fatalf("final chunk has no choices: %+v", last)
+				}
 				if last.Choices[0].FinishReason == nil || *last.Choices[0].FinishReason != "length" {
 					t.Errorf("last FinishReason = %v, want %q", last.Choices[0].FinishReason, "length")
 				}
@@ -417,6 +420,9 @@ func TestCompletionsStreamErrorWire(t *testing.T) {
 		t.Fatal("no chunks decoded before the error frame")
 	}
 	last := chunks[len(chunks)-1]
+	if len(last.Choices) == 0 {
+		t.Fatalf("last chunk before the error has no choices: %+v", last)
+	}
 	if last.Usage == nil || last.Choices[0].FinishReason == nil || *last.Choices[0].FinishReason != "length" {
 		t.Errorf("last chunk before the error = %+v, want a finished result with usage", last)
 	}

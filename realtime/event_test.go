@@ -211,10 +211,16 @@ func TestRealtimeToolFrames(t *testing.T) {
 		}
 		switch ev.Type {
 		case realtime.ResponseFunctionCallArgumentsDelta:
+			if ev.Delta == nil {
+				t.Fatalf("%s is missing delta", ev.Type)
+			}
 			args.WriteString(*ev.Delta)
 		case realtime.ResponseFunctionCallArgumentsDone:
 			finished = &ev
 		case realtime.ConversationItemDone:
+			if ev.Item == nil {
+				t.Fatalf("%s is missing item", ev.Type)
+			}
 			if ev.Item.Type == "function_call_output" {
 				result = ev.Item
 			}
