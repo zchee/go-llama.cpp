@@ -315,7 +315,7 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 	var (
 		n         int
 		last      error
-		permanent bool
+		permanent error
 	)
 	if p.MaxInterval <= 0 {
 		p.MaxInterval = backoff.DefaultMaxInterval
@@ -337,7 +337,7 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 		}
 		re, ok := errors.AsType[*retryableError](err)
 		if !ok {
-			permanent = true
+			permanent = err
 			return v, backoff.Permanent(err)
 		}
 		last = re.err
@@ -351,8 +351,11 @@ func retry[T any](ctx context.Context, p RetryPolicy, attempt func(ctx context.C
 		backoff.WithMaxElapsedTime(p.MaxElapsedTime),
 	)
 	switch {
-	case err == nil, permanent:
-		return v, err
+	case err == nil:
+		return v, nil
+	case permanent != nil:
+		// backoff.Retry leaves its permanent mark on an error that ends the final attempt.
+		return v, permanent
 	case last == nil:
 		return v, err
 	}
