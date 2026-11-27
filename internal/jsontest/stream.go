@@ -14,7 +14,49 @@
 
 package jsontest
 
-import "testing"
+import (
+	"errors"
+	"iter"
+	"testing"
+)
+
+// SingleErrorStream checks that seq yields only (nil, error) on its first range
+// and only (nil, consumed) on its second, allowing wrapped consumed errors.
+// It returns the first error so the caller can check the request-specific failure.
+func SingleErrorStream[T any](t testing.TB, seq iter.Seq2[*T, error], consumed error) error {
+	t.Helper()
+	var first error
+	count := 0
+	for v, err := range seq {
+		if count == 0 {
+			first = err
+		}
+		count++
+		if v != nil {
+			t.Errorf("first range yielded a non-nil value: %v", *v)
+		}
+		if err == nil {
+			t.Errorf("first range yielded a nil error")
+		}
+	}
+	if count != 1 {
+		t.Errorf("first range yielded %d pairs, want 1", count)
+	}
+	count = 0
+	for v, err := range seq {
+		count++
+		if v != nil {
+			t.Errorf("second range yielded a non-nil value: %v", *v)
+		}
+		if !errors.Is(err, consumed) {
+			t.Errorf("second range error = %v, want %v", err, consumed)
+		}
+	}
+	if count != 1 {
+		t.Errorf("second range yielded %d pairs, want 1", count)
+	}
+	return first
+}
 
 // StreamFrameCuts returns every recorded SSE prefix ending in two consecutive newlines.
 // It fails the test if the recording itself does not end at such a boundary.
